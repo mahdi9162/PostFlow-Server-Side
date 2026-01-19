@@ -42,10 +42,23 @@ async function run() {
           return res.status(400).json({ message: 'post required' });
         }
 
+        post.account = post.account.trim().toLowerCase();
+        post.day = post.day.trim().toLowerCase();
         post.createdAt = new Date();
         post.status = 'pending';
         const result = await postsCollection.insertOne(post);
-        res.status(201).json(result);
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
+    // get api
+    app.get('/api/posts', async (req, res) => {
+      try {
+        const limit = 10;
+        const result = await postsCollection.find().sort({ createdAt: -1 }).limit(limit).toArray();
+        res.status(200).json(result);
       } catch (error) {
         res.status(500).json({ message: error.message });
       }
