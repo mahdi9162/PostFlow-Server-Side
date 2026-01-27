@@ -2,7 +2,7 @@ const express = require('express');
 require('dotenv').config();
 const cors = require('cors');
 const app = express();
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const port = process.env.PORT || 3000;
 
 // middleware
@@ -59,6 +59,37 @@ async function run() {
         const limit = 10;
         const result = await postsCollection.find().sort({ createdAt: -1 }).limit(limit).toArray();
         res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
+    //update mark as update
+    app.patch('/api/posts/:id/posted', async (req, res) => {
+      try {
+        const { id } = req.params;
+        const body = req.body;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ message: 'Invalid post id' });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        const updatedDoc = {
+          $set: {
+            status: 'posted',
+            postedAt: new Date(),
+          },
+        };
+
+        const result = await postsCollection.updateOne(query, updatedDoc);
+
+        if (result.matchedCount === 0) {
+          return res.status(404).json({ message: 'Post not found' });
+        }
+
+        return res.json({ message: 'Marked as posted', modifiedCount: result.modifiedCount });
       } catch (error) {
         res.status(500).json({ message: error.message });
       }
