@@ -9,6 +9,28 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+const admin = require('./firebaseAdmin');
+
+const verifyFirebaseToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Unauthorized: No token' });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    const decoded = await admin.auth().verifyIdToken(token);
+
+    req.user = decoded;
+
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Unauthorized: Invalid token' });
+  }
+};
+
 // test route
 app.get('/', (req, res) => {
   res.send('PostFlow server running..');
@@ -30,10 +52,87 @@ async function run() {
 
     const db = client.db('postFlow-db');
     const postsCollection = db.collection('posts');
+    const userCollection = db.collection('users');
 
-    //----------API----------
+    //----------APIS----------
 
-    // post api
+    // FOR USERS - post api
+    app.post('/api/users', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid, email } = req.user;
+
+        // role validation
+        const requestedRole = (req.body?.role || '').toLowerCase();
+        const allowedRoles = ['creator', 'publisher', 'admin'];
+
+        if (!allowedRoles.includes(requestedRole)) {
+          return res.status(400).json({ message: 'Invalid role. Role is required.' });
+        }
+
+        const existing = await userCollection.findOne({ firebaseUid: uid });
+
+        if (existing) {
+          return res.status(409).json({ message: 'User already exists' });
+        }
+
+        const body = {
+          firebaseUid: uid,
+          email,
+          requestedRole,
+          status: 'pending',
+          role: null,
+          createdAt: new Date(),
+          approvedAt: null,
+          approvedBy: null,
+        };
+
+        const result = await userCollection.insertOne(body);
+        return res.status(201).json({
+          message: 'User request saved (pending approval)',
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        return res.status(500).json({ message: 'Server error' });
+      }
+    });
+
+    // FOR USERS - get my status api
+    app.get('/api/users/me', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid, email } = req.user || {};
+
+        if (!uid) {
+          return res.status(401).json({ message: 'Unauthorized: invalid token' });
+        }
+
+        const me = await userCollection.findOne({ firebaseUid: uid });
+
+        if (!me) {
+          return res.status(404).json({
+            message: 'User record not found. Submit access request first.',
+            status: 'not_found',
+            role: null,
+            requestedRole: null,
+          });
+        }
+
+        return res.status(200).json({
+          email: me.email || email || null,
+          status: me.status || 'pending',
+          role: me.role ?? null,
+          requestedRole: me.requestedRole ?? null,
+          message: me.message || '',
+          approvedAt: me.approvedAt ?? null,
+          approvedBy: me.approvedBy ?? null,
+          createdAt: me.createdAt ?? null,
+        });
+      } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: 'Server error' });
+      }
+    });
+
+    // FOR POSTS - post api
     app.post('/api/posts', async (req, res) => {
       try {
         const post = req.body;
@@ -53,12 +152,27 @@ async function run() {
       }
     });
 
-    // get api
-    app.get('/api/posts', async (req, res) => {
+    // FOR POSTS - get api
+    app.get('/api/posts', verifyFirebaseToken, async (req, res) => {
       try {
-        const limit = 10;
-        const result = await postsCollection.find().sort({ createdAt: -1 }).limit(limit).toArray();
-        res.status(200).json(result);
+        const { uid } = req.user;
+        const { account } = req.query;
+
+        const me = await userCollection.findOne({ firebaseUid: uid });
+
+        // approval gate
+        if (!me || me.status !== 'approved') {
+          return res.status(403).json({ message: 'Access not approved' });
+        }
+
+        const query = {};
+        if (account) {
+          query.account = account.toLowerCase();
+        }
+
+        const posts = await postsCollection.find(query).sort({ createdAt: -1 }).limit(10).toArray();
+
+        res.status(200).json(posts);
       } catch (error) {
         res.status(500).json({ message: error.message });
       }
