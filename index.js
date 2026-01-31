@@ -96,6 +96,27 @@ async function run() {
       }
     });
 
+    // FOR USERS - get api only admin
+    app.get('/api/access-requests', verifyFirebaseToken, async (req, res) => {
+      const { uid } = req.user;
+
+      try {
+        const me = await userCollection.findOne({ firebaseUid: uid });
+
+        if (!me || me.status !== 'approved' || me.role !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden: admin only' });
+        }
+
+        const query = { status: 'pending' };
+
+        const result = await userCollection.find(query).sort({ createdAt: -1 }).toArray();
+
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
     // FOR USERS - get my status api
     app.get('/api/users/me', verifyFirebaseToken, async (req, res) => {
       try {
