@@ -117,7 +117,47 @@ async function run() {
       }
     });
 
-    // FOR USERS - get my status api
+    // FOR USERS - update api only admin
+    app.patch('/api/access-requests/:id/approve', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid } = req.user;
+        const { id } = req.params;
+
+        if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+        if (!ObjectId.isValid(id)) return res.status(400).json({ message: 'Invalid request id' });
+
+        //  admin check
+        const me = await userCollection.findOne({ firebaseUid: uid });
+
+        if (!me || me.status !== 'approved' || me.role !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden: admin only' });
+        }
+
+        //  target user
+        const query = { _id: new ObjectId(id) };
+        const user = await userCollection.findOne(query);
+        if (!user) {
+          return res.status(404).json({ message: 'User not found' });
+        }
+
+        const updatedDoc = {
+          $set: {
+            status: 'approved',
+            role: user.requestedRole,
+            approvedAt: new Date(),
+            approvedBy: me.email,
+          },
+        };
+
+        const result = await userCollection.updateOne(query, updatedDoc);
+
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
+    // FOR USERS - get my status api for first time signIn user
     app.get('/api/users/me', verifyFirebaseToken, async (req, res) => {
       try {
         const { uid, email } = req.user || {};
@@ -139,10 +179,9 @@ async function run() {
 
         return res.status(200).json({
           email: me.email || email || null,
-          status: me.status || 'pending',
+          status: me.status ?? 'pending',
           role: me.role ?? null,
           requestedRole: me.requestedRole ?? null,
-          message: me.message || '',
           approvedAt: me.approvedAt ?? null,
           approvedBy: me.approvedBy ?? null,
           createdAt: me.createdAt ?? null,
