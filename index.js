@@ -277,6 +277,8 @@ async function run() {
 }
 run().catch(console.dir);
 
-app.listen(port, () => {
-  console.log(`PostFlow server listening on port ${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => console.log(`Server running on ${port}`));
+}
+
+module.exports = app;
