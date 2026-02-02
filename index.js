@@ -192,6 +192,8 @@ async function run() {
       }
     });
 
+    //----------------------POSTS----------------------------
+
     // FOR POSTS - post api
     app.post('/api/posts', async (req, res) => {
       try {
@@ -238,7 +240,53 @@ async function run() {
       }
     });
 
-    //update mark as update
+    // post update api
+    app.patch('/api/posts/:id', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid } = req.user;
+        const { id } = req.params;
+
+        if (!uid) {
+          return res.status(401).json({ message: 'Unauthorized: invalid token' });
+        }
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ message: 'Invalid post id' });
+        }
+
+        const me = await userCollection.findOne({ firebaseUid: uid });
+
+        if (!me || me.status !== 'approved' || (me.role !== 'admin' && me.role !== 'creator')) {
+          return res.status(403).json({ message: 'Access: admin and creator only' });
+        }
+
+        const query = { _id: new ObjectId(id) };
+
+        // only allow these fields to update
+        const { account, day, caption, cta, source, hashtags, driveLink } = req.body;
+
+        const updatedDoc = {
+          $set: {
+            account,
+            day,
+            caption,
+            cta,
+            source,
+            driveLink,
+            hashtags,
+            updatedAt: new Date(),
+            updatedBy: me.email,
+          },
+        };
+
+        const result = await postsCollection.updateOne(query, updatedDoc);
+
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
+    //update api :  mark as posted
     app.patch('/api/posts/:id/posted', async (req, res) => {
       try {
         const { id } = req.params;
