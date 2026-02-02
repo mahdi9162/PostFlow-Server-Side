@@ -286,24 +286,33 @@ async function run() {
       }
     });
 
-    //update api :  mark as posted
-    app.patch('/api/posts/:id/posted', async (req, res) => {
+    //update api :  mark as posted/pending
+    app.patch('/api/posts/:id/status', async (req, res) => {
       try {
         const { id } = req.params;
-        const body = req.body;
+        const { status } = req.body;
 
         if (!ObjectId.isValid(id)) {
           return res.status(400).json({ message: 'Invalid post id' });
         }
 
+        if (status !== 'posted' && status !== 'pending') {
+          return res.status(400).json({ message: 'Invalid status' });
+        }
+
         const query = { _id: new ObjectId(id) };
 
         const updatedDoc = {
-          $set: {
-            status: 'posted',
-            postedAt: new Date(),
-          },
+          $set: { status: status },
+          $unset: {},
         };
+
+        if (status === 'posted') {
+          updatedDoc.$set.postedAt = new Date();
+          delete updatedDoc.$unset;
+        } else {
+          updatedDoc.$unset = { postedAt: '' };
+        }
 
         const result = await postsCollection.updateOne(query, updatedDoc);
 
