@@ -351,6 +351,30 @@ async function run() {
       }
     });
 
+    // tags GET api
+    app.get('/api/tags', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid } = req.user;
+        if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+        const { accountId } = req.query;
+        if (!accountId) {
+          return res.status(400).json({ message: 'accountId query param is required' });
+        }
+
+        // 1) verify admin user
+        const admin = await userCollection.findOne({ firebaseUid: uid });
+        if (!admin || admin.status !== 'approved' || admin.role !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden: admin only' });
+        }
+
+        const result = await tagsCollection.find({ account: accountId }).sort({ createdAt: -1 }).toArray();
+        res.status(200).json(result);
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
     console.log('Pinged your deployment. You successfully connected to MongoDB!');
   } finally {
     // Ensures that the client will close when you finish/error
