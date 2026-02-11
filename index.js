@@ -53,6 +53,7 @@ async function run() {
     const db = client.db('postFlow-db');
     const postsCollection = db.collection('posts');
     const userCollection = db.collection('users');
+    const tagsCollection = db.collection('tags');
 
     //----------APIS----------
 
@@ -321,6 +322,30 @@ async function run() {
         }
 
         return res.json({ message: 'Marked as posted', modifiedCount: result.modifiedCount });
+      } catch (error) {
+        res.status(500).json({ message: error.message });
+      }
+    });
+
+    // Tags APIS ------------------------------------------------------
+    app.post('/api/tags', verifyFirebaseToken, async (req, res) => {
+      try {
+        const { uid } = req.user;
+        const tags = req.body;
+
+        if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+        if (!tags) return res.status(400).json({ message: 'tags required' });
+
+        const admin = await userCollection.findOne({ firebaseUid: uid });
+
+        if (!admin || admin.status !== 'approved' || admin.role !== 'admin') {
+          return res.status(403).json({ message: 'Forbidden: admin only' });
+        }
+
+        tags.account = tags.account.trim().toLowerCase();
+        tags.createdAt = new Date();
+        const result = await tagsCollection.insertOne(tags);
+        res.status(200).json(result);
       } catch (error) {
         res.status(500).json({ message: error.message });
       }
