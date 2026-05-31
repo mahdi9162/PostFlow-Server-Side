@@ -247,7 +247,7 @@ async function run() {
         batchStartDate.setHours(0, 0, 0, 0);
 
         query.createdAt = {
-          $gte: batchStartDate.toISOString(),
+          $gte: batchStartDate,
         };
 
         const posts = await postsCollection.find(query).sort({ createdAt: -1 }).limit(10).toArray();
