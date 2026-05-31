@@ -230,16 +230,25 @@ async function run() {
         const query = {};
 
         if (account) {
-          query.account = account.toLowerCase();
+          query.account = account.trim().toLowerCase();
         }
 
         if (day) {
-          query.day = day.toLowerCase();
+          query.day = day.trim().toLowerCase();
         }
 
         if (status && status !== 'all') {
-          query.status = status.toLowerCase();
+          query.status = status.trim().toLowerCase();
         }
+
+        // show only current batch: today + previous 6 days
+        const batchStartDate = new Date();
+        batchStartDate.setDate(batchStartDate.getDate() - 6);
+        batchStartDate.setHours(0, 0, 0, 0);
+
+        query.createdAt = {
+          $gte: batchStartDate.toISOString(),
+        };
 
         const posts = await postsCollection.find(query).sort({ createdAt: -1 }).limit(10).toArray();
 
