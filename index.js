@@ -219,18 +219,26 @@ async function run() {
     app.get('/api/posts', verifyFirebaseToken, async (req, res) => {
       try {
         const { uid } = req.user;
-        const { account } = req.query;
+        const { account, day, status } = req.query;
 
         const me = await userCollection.findOne({ firebaseUid: uid });
 
-        // approval gate
         if (!me || me.status !== 'approved') {
           return res.status(403).json({ message: 'Access not approved' });
         }
 
         const query = {};
+
         if (account) {
           query.account = account.toLowerCase();
+        }
+
+        if (day) {
+          query.day = day.toLowerCase();
+        }
+
+        if (status && status !== 'all') {
+          query.status = status.toLowerCase();
         }
 
         const posts = await postsCollection.find(query).sort({ createdAt: -1 }).limit(10).toArray();
