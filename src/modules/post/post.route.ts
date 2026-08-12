@@ -17,4 +17,7 @@ router.patch('/:id', verifyFirebaseToken, catchAsync(postController.updatePost))
 // update api : mark as posted/pending
 router.patch('/:id/status', catchAsync(postController.updatePostStatus));
 
+// post delete api
+router.delete('/:id', verifyFirebaseToken, catchAsync(postController.deletePost));
+
 export const postRouter = router;

@@ -5,6 +5,8 @@ import * as userService from '../user/user.service';
 import { validateAndDeriveDay, parseDriveFileId } from './post.helper';
 import { Post, PostMedia } from './post.types';
 
+import { getNextHashtagGroup, advanceHashtagRotation } from '../hashtagGroup/hashtagGroup.helper';
+
 export const createPost = async (req: Request, res: Response) => {
   try {
     const postData = req.body;
@@ -13,7 +15,7 @@ export const createPost = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'post required' });
     }
 
-    const { account, scheduledDate, caption, cta, source, driveLink, hashtags } = postData;
+    const { account, scheduledDate, caption, cta, source, driveLink, hashtags, autoHashtags } = postData;
 
     if (!scheduledDate) {
       return res.status(400).json({ message: 'scheduledDate is required' });
@@ -36,8 +38,21 @@ export const createPost = async (req: Request, res: Response) => {
       };
     }
 
+    let finalHashtags = hashtags;
+    let consumedGroupOrder: number | null = null;
+    let safeAccount = (account || '').trim().toLowerCase();
+
+    if (autoHashtags) {
+      const nextGroup = await getNextHashtagGroup(safeAccount);
+      if (!nextGroup) {
+        return res.status(400).json({ message: 'No enabled hashtag groups available for this account.' });
+      }
+      finalHashtags = nextGroup.hashtags.join(' ');
+      consumedGroupOrder = nextGroup.order;
+    }
+
     const post: Post = {
-      account: (account || '').trim().toLowerCase(),
+      account: safeAccount,
       scheduledDate,
       day,
       caption,
@@ -45,13 +60,18 @@ export const createPost = async (req: Request, res: Response) => {
       source: source || null,
       driveLink, // keeping legacy for compatibility
       media,
-      hashtags,
+      hashtags: finalHashtags,
       status: 'pending',
       createdBy: 'manual',
       createdAt: new Date(),
     };
 
     const result = await postService.createPost(post);
+
+    if (consumedGroupOrder !== null) {
+      await advanceHashtagRotation(safeAccount, consumedGroupOrder);
+    }
+
     res.status(200).json(result);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -191,6 +211,36 @@ export const updatePostStatus = async (req: Request, res: Response) => {
     }
 
     return res.json({ message: 'Marked as posted', modifiedCount: result.modifiedCount });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deletePost = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user!;
+    const id = req.params.id as string;
+
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized: invalid token' });
+    }
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid post id' });
+    }
+
+    const me = await userService.findUserByFirebaseUid(uid);
+
+    if (!me || me.status !== 'approved' || (me.role !== 'admin' && me.role !== 'creator')) {
+      return res.status(403).json({ message: 'Access: admin and creator only' });
+    }
+
+    const result = await postService.deletePost(id);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+
+    res.status(200).json({ message: 'Post deleted successfully' });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
