@@ -12,16 +12,39 @@ const client = new MongoClient(uri, {
 });
 
 let db: Db;
+let initDbPromise: Promise<Db> | null = null;
 
-export const connectDB = async () => {
-  try {
-    // await client.connect(); // Wait, in the original code, client.connect() was commented out, native driver handles it internally if we just call db operations, but it's good practice. I'll stick to original behavior (commented out or just use it). Actually, original code has it commented out but it still works because MongoClient connects automatically on the first operation in v4+.
-    db = client.db('postFlow-db');
-    console.log('Successfully connected to MongoDB!');
-  } catch (error) {
-    console.error('Error connecting to MongoDB:', error);
-    process.exit(1);
+export const initializeDatabase = async (): Promise<Db> => {
+  if (initDbPromise) {
+    return initDbPromise;
   }
+
+  initDbPromise = (async () => {
+    try {
+      db = client.db('postFlow-db');
+      
+      // Initialize collections and indexes safely
+      await db.collection('posts').createIndex(
+        { account: 1, scheduledDate: 1, 'media.fingerprint': 1 },
+        { 
+          unique: true, 
+          partialFilterExpression: { 
+            account: { $type: 'string' },
+            scheduledDate: { $type: 'string' },
+            'media.fingerprint': { $type: 'string' }
+          } 
+        }
+      );
+      
+      return db;
+    } catch (error) {
+      console.error('Error initializing MongoDB:', error);
+      initDbPromise = null; // allow retry on next request if it failed
+      throw error;
+    }
+  })();
+
+  return initDbPromise;
 };
 
 export const getDB = () => {

@@ -6,6 +6,7 @@ export const env = {
   PORT: process.env.PORT || '3000',
   MONGODB_URI: process.env.MONGODB_URI || '',
   FIREBASE_SERVICE_ACCOUNT: process.env.FIREBASE_SERVICE_ACCOUNT || '',
+  INTERNAL_API_KEY: process.env.INTERNAL_API_KEY || '',
 };
 
 if (!env.MONGODB_URI) {

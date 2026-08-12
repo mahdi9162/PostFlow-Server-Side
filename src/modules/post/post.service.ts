@@ -12,6 +12,14 @@ export const findPosts = async (query: any) => {
   return await getCollection().find(query).sort({ createdAt: -1 }).limit(10).toArray();
 };
 
+export const checkDuplicatePost = async (account: string, scheduledDate: string, fingerprint: string, excludeId?: string) => {
+  const query: any = { account, scheduledDate, 'media.fingerprint': fingerprint };
+  if (excludeId) {
+    query._id = { $ne: new ObjectId(excludeId) };
+  }
+  return await getCollection().findOne(query);
+};
+
 export const updatePost = async (id: string, updateData: any) => {
   return await getCollection().updateOne(
     { _id: new ObjectId(id) },
