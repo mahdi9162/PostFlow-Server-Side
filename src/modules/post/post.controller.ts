@@ -423,8 +423,8 @@ export const deletePost = async (req: Request, res: Response) => {
 
     const me = await userService.findUserByFirebaseUid(uid);
 
-    if (!me || me.status !== 'approved' || (me.role !== 'admin' && me.role !== 'creator')) {
-      return res.status(403).json({ message: 'Access: admin and creator only' });
+    if (!me || me.status !== 'approved' || me.role !== 'admin') {
+      return res.status(403).json({ message: 'Access: admin only' });
     }
 
     const result = await postService.deletePost(id);
