@@ -1,0 +1,17 @@
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export const env = {
+  PORT: process.env.PORT || '3000',
+  MONGODB_URI: process.env.MONGODB_URI || '',
+  FIREBASE_SERVICE_ACCOUNT: process.env.FIREBASE_SERVICE_ACCOUNT || '',
+};
+
+if (!env.MONGODB_URI) {
+  throw new Error('Missing MONGODB_URI in environment variables.');
+}
+
+if (!env.FIREBASE_SERVICE_ACCOUNT) {
+  throw new Error('Missing FIREBASE_SERVICE_ACCOUNT in environment variables.');
+}
