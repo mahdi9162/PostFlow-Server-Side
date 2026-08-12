@@ -2,19 +2,55 @@ import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
 import * as postService from './post.service';
 import * as userService from '../user/user.service';
+import { validateAndDeriveDay, parseDriveFileId } from './post.helper';
+import { Post, PostMedia } from './post.types';
 
 export const createPost = async (req: Request, res: Response) => {
   try {
-    const post = req.body;
+    const postData = req.body;
 
-    if (!post) {
+    if (!postData) {
       return res.status(400).json({ message: 'post required' });
     }
 
-    post.account = post.account.trim().toLowerCase();
-    post.day = post.day.trim().toLowerCase();
-    post.createdAt = new Date();
-    post.status = 'pending';
+    const { account, scheduledDate, caption, cta, source, driveLink, hashtags } = postData;
+
+    if (!scheduledDate) {
+      return res.status(400).json({ message: 'scheduledDate is required' });
+    }
+
+    const day = validateAndDeriveDay(scheduledDate);
+    if (!day) {
+      return res.status(400).json({ message: 'Invalid scheduledDate format or impossible date' });
+    }
+
+    let media: PostMedia | undefined;
+    if (driveLink) {
+      const fileId = parseDriveFileId(driveLink);
+      if (!fileId) {
+        return res.status(400).json({ message: 'Invalid Google Drive link provided' });
+      }
+      media = {
+        provider: 'google-drive',
+        driveFileId: fileId,
+      };
+    }
+
+    const post: Post = {
+      account: (account || '').trim().toLowerCase(),
+      scheduledDate,
+      day,
+      caption,
+      cta,
+      source: source || null,
+      driveLink, // keeping legacy for compatibility
+      media,
+      hashtags,
+      status: 'pending',
+      createdBy: 'manual',
+      createdAt: new Date(),
+    };
+
     const result = await postService.createPost(post);
     res.status(200).json(result);
   } catch (error: any) {
@@ -25,7 +61,7 @@ export const createPost = async (req: Request, res: Response) => {
 export const getPosts = async (req: Request, res: Response) => {
   try {
     const { uid } = req.user!;
-    const { account, day, status } = req.query;
+    const { account, scheduledDate, status } = req.query;
 
     const me = await userService.findUserByFirebaseUid(uid);
 
@@ -39,22 +75,13 @@ export const getPosts = async (req: Request, res: Response) => {
       query.account = (account as string).trim().toLowerCase();
     }
 
-    if (day) {
-      query.day = (day as string).trim().toLowerCase();
+    if (scheduledDate) {
+      query.scheduledDate = (scheduledDate as string).trim();
     }
 
     if (status && status !== 'all') {
       query.status = (status as string).trim().toLowerCase();
     }
-
-    // show only current batch: today + previous 6 days
-    const batchStartDate = new Date();
-    batchStartDate.setDate(batchStartDate.getDate() - 6);
-    batchStartDate.setHours(0, 0, 0, 0);
-
-    query.createdAt = {
-      $gte: batchStartDate,
-    };
 
     const posts = await postService.findPosts(query);
 
@@ -82,22 +109,47 @@ export const updatePost = async (req: Request, res: Response) => {
       return res.status(403).json({ message: 'Access: admin and creator only' });
     }
 
-    // only allow these fields to update
-    const { account, day, caption, cta, source, hashtags, driveLink } = req.body;
+    const { account, scheduledDate, caption, cta, source, hashtags, driveLink } = req.body;
 
-    const updatedDoc = {
+    const updatedDoc: any = {
       $set: {
-        account,
-        day,
-        caption,
-        cta,
-        source,
-        driveLink,
-        hashtags,
         updatedAt: new Date(),
         updatedBy: me.email,
       },
     };
+
+    if (account !== undefined) updatedDoc.$set.account = account;
+    if (caption !== undefined) updatedDoc.$set.caption = caption;
+    if (cta !== undefined) updatedDoc.$set.cta = cta;
+    if (source !== undefined) updatedDoc.$set.source = source || null;
+    if (hashtags !== undefined) updatedDoc.$set.hashtags = hashtags;
+
+    if (scheduledDate !== undefined) {
+      const day = validateAndDeriveDay(scheduledDate);
+      if (!day) {
+        return res.status(400).json({ message: 'Invalid scheduledDate format or impossible date' });
+      }
+      updatedDoc.$set.scheduledDate = scheduledDate;
+      updatedDoc.$set.day = day;
+    }
+
+    if (driveLink !== undefined) {
+      if (driveLink === '') {
+        updatedDoc.$set.driveLink = '';
+        updatedDoc.$unset = updatedDoc.$unset || {};
+        updatedDoc.$unset.media = '';
+      } else {
+        const fileId = parseDriveFileId(driveLink);
+        if (!fileId) {
+          return res.status(400).json({ message: 'Invalid Google Drive link provided' });
+        }
+        updatedDoc.$set.driveLink = driveLink;
+        updatedDoc.$set.media = {
+          provider: 'google-drive',
+          driveFileId: fileId,
+        };
+      }
+    }
 
     const result = await postService.updatePost(id, updatedDoc);
 
