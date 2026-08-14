@@ -4,6 +4,8 @@ import * as postService from './post.service';
 import * as userService from '../user/user.service';
 import { validateAndDeriveDay, parseDriveFileId } from './post.helper';
 import { Post, PostMedia } from './post.types';
+import { driveClient } from '../../config/drive.config';
+
 
 import { getNextHashtagGroup, advanceHashtagRotation } from '../hashtagGroup/hashtagGroup.helper';
 
@@ -438,3 +440,109 @@ export const deletePost = async (req: Request, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const downloadPostMedia = async (req: Request, res: Response) => {
+  try {
+    const { uid } = req.user!;
+    const id = req.params.id as string;
+
+    if (!uid) {
+      return res.status(401).json({ message: 'Unauthorized: invalid token' });
+    }
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid post id' });
+    }
+
+    const me = await userService.findUserByFirebaseUid(uid);
+    if (!me || me.status !== 'approved' || (me.role !== 'admin' && me.role !== 'creator' && me.role !== 'publisher')) {
+      return res.status(403).json({ message: 'Forbidden: admin, creator and publisher only' });
+    }
+
+    const existingPosts = await postService.findPosts({ _id: new ObjectId(id) });
+    if (!existingPosts || existingPosts.length === 0) {
+      return res.status(404).json({ message: 'Post not found' });
+    }
+    const post = existingPosts[0];
+
+    const driveFileId = post.media?.driveFileId;
+    if (!driveFileId) {
+      return res.status(400).json({ message: 'This post does not have downloadable Drive media.' });
+    }
+
+    let driveMetadata: any;
+    try {
+      const metaRes = await driveClient.files.get({
+        fileId: driveFileId,
+        fields: 'id, name, mimeType, size',
+      });
+      driveMetadata = metaRes.data;
+    } catch (error: any) {
+      const status = error.code || error.status || 500;
+      if (status === 404) {
+        return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
+      }
+      if (status === 403) {
+        return res.status(403).json({ message: 'You do not have access to this media.' });
+      }
+      return res.status(500).json({ message: 'Failed to download media.' });
+    }
+
+    let streamRes: any;
+    try {
+      streamRes = await driveClient.files.get(
+        {
+          fileId: driveFileId,
+          alt: 'media',
+        },
+        {
+          responseType: 'stream',
+        }
+      );
+    } catch (error: any) {
+      const status = error.code || error.status || 500;
+      if (status === 404) {
+        return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
+      }
+      if (status === 403) {
+        return res.status(403).json({ message: 'You do not have access to this media.' });
+      }
+      return res.status(500).json({ message: 'Failed to download media.' });
+    }
+
+    const rawFileName = post.media?.fileName || driveMetadata.name || `post-media-${id}`;
+    const safeFileName = rawFileName.replace(/[/\\?%*:|"<>]/g, '_').replace(/[\r\n]/g, '');
+    const contentType = driveMetadata.mimeType || post.media?.mimeType || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${safeFileName.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`
+    );
+    if (driveMetadata.size) {
+      res.setHeader('Content-Length', driveMetadata.size);
+    }
+
+    const driveStream: any = streamRes.data;
+
+    res.on('close', () => {
+      if (!res.writableEnded && driveStream && typeof driveStream.destroy === 'function') {
+        driveStream.destroy();
+      }
+    });
+
+    driveStream.on('error', (_err: any) => {
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to download media.' });
+      } else {
+        res.destroy();
+      }
+    });
+
+    driveStream.pipe(res);
+  } catch (error: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ message: 'Failed to download media.' });
+    }
+  }
+};
+

@@ -7,6 +7,7 @@ export const env = {
   MONGODB_URI: process.env.MONGODB_URI || '',
   FIREBASE_SERVICE_ACCOUNT: process.env.FIREBASE_SERVICE_ACCOUNT || '',
   INTERNAL_API_KEY: process.env.INTERNAL_API_KEY || '',
+  GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON: process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON || '',
 };
 
 if (!env.MONGODB_URI) {

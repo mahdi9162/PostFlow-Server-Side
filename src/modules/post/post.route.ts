@@ -18,8 +18,12 @@ router.patch('/:id', verifyFirebaseToken, catchAsync(postController.updatePost))
 // update api : mark as posted/pending
 router.patch('/:id/status', verifyFirebaseToken, catchAsync(postController.updatePostStatus));
 
+// download media api
+router.get('/:id/media/download', verifyFirebaseToken, catchAsync(postController.downloadPostMedia));
+
 // post delete api
 router.delete('/:id', verifyFirebaseToken, catchAsync(postController.deletePost));
+
 
 export const postRouter = router;
 
