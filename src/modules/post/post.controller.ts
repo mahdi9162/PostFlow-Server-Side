@@ -63,6 +63,13 @@ const handleCreatePostLogic = async (postData: any, createdBy: 'manual' | 'autom
       };
     }
 
+    if (inputMedia.fileName) {
+      media = { ...(media || {}), fileName: inputMedia.fileName } as any;
+    }
+    if (inputMedia.mimeType) {
+      media = { ...(media || {}), mimeType: inputMedia.mimeType } as any;
+    }
+
     // If it has fingerprint, use it
     if (inputMedia.fingerprint) {
       media = {
