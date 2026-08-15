@@ -14,6 +14,33 @@ const client = new MongoClient(uri, {
 let db: Db;
 let initDbPromise: Promise<Db> | null = null;
 
+const initialAccounts = [
+  {
+    slug: 'snortpugs',
+    displayName: 'Snortpugs',
+    driveFolderName: 'Snortpugs',
+    platform: 'instagram',
+    isActive: true,
+    order: 1,
+  },
+  {
+    slug: 'pugsnortz',
+    displayName: 'Pugsnortz',
+    driveFolderName: 'Pugsnortz',
+    platform: 'instagram',
+    isActive: true,
+    order: 2,
+  },
+  {
+    slug: 'pugsnuff',
+    displayName: 'Pugsnuff',
+    driveFolderName: 'Pugsnuff',
+    platform: 'instagram',
+    isActive: true,
+    order: 3,
+  },
+];
+
 export const initializeDatabase = async (): Promise<Db> => {
   if (initDbPromise) {
     return initDbPromise;
@@ -35,6 +62,20 @@ export const initializeDatabase = async (): Promise<Db> => {
           } 
         }
       );
+
+      // Accounts Indexes
+      await db.collection('accounts').createIndex({ slug: 1 }, { unique: true });
+      await db.collection('accounts').createIndex({ order: 1 });
+
+      // Idempotent Seed
+      const accountsCollection = db.collection('accounts');
+      for (const acc of initialAccounts) {
+        await accountsCollection.updateOne(
+          { slug: acc.slug },
+          { $setOnInsert: { ...acc, createdAt: new Date(), updatedAt: new Date() } },
+          { upsert: true }
+        );
+      }
       
       return db;
     } catch (error) {
