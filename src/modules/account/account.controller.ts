@@ -4,6 +4,7 @@ import * as accountService from './account.service';
 import * as userService from '../user/user.service';
 
 const slugRegex = /^[a-z0-9-]+$/;
+const RESERVED_SLUGS = ['dashboard', 'login', 'signup', 'check-email', 'pending-approval', 'forgot-password'];
 
 // Admin-only validation helper
 const checkAdminRole = async (uid: string) => {
@@ -40,6 +41,10 @@ export const createAccount = async (req: Request, res: Response) => {
     
     if (!slugRegex.test(slug)) {
       return res.status(400).json({ message: 'Invalid slug format. Use only lowercase letters, numbers, and hyphens without spaces' });
+    }
+
+    if (RESERVED_SLUGS.includes(slug)) {
+      return res.status(400).json({ message: 'This slug is reserved by PostFlow routing. Choose another slug.' });
     }
 
     if (!displayName || typeof displayName !== 'string' || !displayName.trim()) {
@@ -136,6 +141,9 @@ export const updateAccount = async (req: Request, res: Response) => {
       slug = slug.trim().toLowerCase();
       if (!slugRegex.test(slug)) {
         return res.status(400).json({ message: 'Invalid slug format.' });
+      }
+      if (RESERVED_SLUGS.includes(slug)) {
+        return res.status(400).json({ message: 'This slug is reserved by PostFlow routing. Choose another slug.' });
       }
       if (slug !== existingAccount.slug) {
         // Enforce uniqueness
