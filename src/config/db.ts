@@ -67,6 +67,11 @@ export const initializeDatabase = async (): Promise<Db> => {
       await db.collection('accounts').createIndex({ slug: 1 }, { unique: true });
       await db.collection('accounts').createIndex({ order: 1 });
 
+      // SyncRuns Indexes
+      await db.collection('syncRuns').createIndex({ createdAt: 1 });
+      await db.collection('syncRuns').createIndex({ status: 1 });
+      await db.collection('syncRuns').createIndex({ targetDate: 1 });
+
       // Idempotent Seed
       const accountsCollection = db.collection('accounts');
       for (const acc of initialAccounts) {

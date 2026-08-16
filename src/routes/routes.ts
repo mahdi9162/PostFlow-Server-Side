@@ -3,7 +3,7 @@ import { userRouter, accessRequestRouter } from '../modules/user/user.route';
 import { postRouter, internalPostRouter } from '../modules/post/post.route';
 import { tagRouter } from '../modules/tag/tag.route';
 import { hashtagGroupRouter } from '../modules/hashtagGroup/hashtagGroup.route';
-import syncRouter from '../modules/sync/sync.route';
+import syncRouter, { internalSyncRouter } from '../modules/sync/sync.route';
 import { accountRoutes, internalAccountRoutes } from '../modules/account/account.route';
 
 const router = Router();
@@ -17,5 +17,6 @@ router.use('/hashtagGroups', hashtagGroupRouter);
 router.use('/sync', syncRouter);
 router.use('/accounts', accountRoutes);
 router.use('/internal/accounts', internalAccountRoutes);
+router.use('/internal/sync', internalSyncRouter);
 
 export default router;

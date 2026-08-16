@@ -1,22 +1,74 @@
+import { ObjectId } from 'mongodb';
 import { env } from '../../config/env';
+import { getDB } from '../../config/db';
+import { SyncRun, SyncRunResult } from './sync.types';
 
 interface SyncRequestPayload {
   targetDate: string;
   triggeredBy: string;
   requestId: string;
+  syncId: string;
 }
 
-export const triggerSync = async (payload: SyncRequestPayload) => {
+export const createSyncRun = async (targetDate: string, triggeredBy: string): Promise<ObjectId> => {
+  const db = getDB();
+  const newSyncRun: SyncRun = {
+    targetDate,
+    status: 'running',
+    triggeredBy,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const result = await db.collection<SyncRun>('syncRuns').insertOne(newSyncRun);
+  return result.insertedId;
+};
+
+export const getSyncRunById = async (syncId: string): Promise<SyncRun | null> => {
+  const db = getDB();
+  return db.collection<SyncRun>('syncRuns').findOne({ _id: new ObjectId(syncId) });
+};
+
+export const updateSyncRunToFailed = async (syncId: string, errorMessage: string): Promise<boolean> => {
+  const db = getDB();
+  const update = {
+    $set: {
+      status: 'failed' as const,
+      errorMessage,
+      updatedAt: new Date(),
+      completedAt: new Date(),
+    },
+  };
+  const result = await db.collection<SyncRun>('syncRuns').updateOne({ _id: new ObjectId(syncId), status: 'running' }, update);
+  return result.modifiedCount > 0;
+};
+
+export const updateSyncRunToCompleted = async (syncId: string, resultData: SyncRunResult): Promise<boolean> => {
+  const db = getDB();
+  const update = {
+    $set: {
+      status: 'completed' as const,
+      result: resultData,
+      updatedAt: new Date(),
+      completedAt: new Date(),
+    },
+  };
+  const result = await db.collection<SyncRun>('syncRuns').updateOne({ _id: new ObjectId(syncId), status: 'running' }, update);
+  return result.modifiedCount > 0;
+};
+
+export const triggerSync = async (payload: SyncRequestPayload): Promise<void> => {
   const { N8N_POSTFLOW_WEBHOOK_URL, N8N_POSTFLOW_WEBHOOK_KEY } = env;
 
   if (!N8N_POSTFLOW_WEBHOOK_URL || !N8N_POSTFLOW_WEBHOOK_KEY) {
     throw new Error('Sync configuration is missing on the server.');
   }
 
-  const signal = AbortSignal.timeout(10000); // 10 seconds timeout
+  const signal = AbortSignal.timeout(10000); // 10 seconds timeout for quick acknowledgement
 
+  let response;
   try {
-    const response = await fetch(N8N_POSTFLOW_WEBHOOK_URL, {
+    response = await fetch(N8N_POSTFLOW_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -25,18 +77,13 @@ export const triggerSync = async (payload: SyncRequestPayload) => {
       body: JSON.stringify(payload),
       signal,
     });
-
-    if (!response.ok) {
-      throw new Error(`Upstream sync service responded with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data;
   } catch (error: any) {
-    if (error.name === 'TimeoutError') {
-      throw new Error('Sync request timed out.');
-    }
-    // Mask detailed network/internal errors from downstream
-    throw new Error('Upstream sync service failed.');
+    throw new Error('Sync workflow could not be started.');
   }
+
+  if (!response.ok) {
+    throw new Error('Sync workflow could not be started.');
+  }
+
+  // Quick acknowledgement received; do not wait for the final summary.
 };
