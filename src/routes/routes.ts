@@ -5,6 +5,7 @@ import { tagRouter } from '../modules/tag/tag.route';
 import { hashtagGroupRouter } from '../modules/hashtagGroup/hashtagGroup.route';
 import syncRouter, { internalSyncRouter } from '../modules/sync/sync.route';
 import { accountRoutes, internalAccountRoutes } from '../modules/account/account.route';
+import platformSettingsRouter from '../modules/platformSettings/platformSettings.route';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/sync', syncRouter);
 router.use('/accounts', accountRoutes);
 router.use('/internal/accounts', internalAccountRoutes);
 router.use('/internal/sync', internalSyncRouter);
+router.use('/settings/platform', platformSettingsRouter);
 
 export default router;
