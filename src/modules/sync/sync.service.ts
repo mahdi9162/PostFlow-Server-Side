@@ -43,11 +43,15 @@ export const updateSyncRunToFailed = async (syncId: string, errorMessage: string
   return result.modifiedCount > 0;
 };
 
-export const updateSyncRunToCompleted = async (syncId: string, resultData: SyncRunResult): Promise<boolean> => {
+export const updateSyncRunToFinalized = async (
+  syncId: string,
+  status: 'completed' | 'partial_success' | 'failed' | 'incomplete',
+  resultData: SyncRunResult
+): Promise<boolean> => {
   const db = getDB();
   const update = {
     $set: {
-      status: 'completed' as const,
+      status,
       result: resultData,
       updatedAt: new Date(),
       completedAt: new Date(),

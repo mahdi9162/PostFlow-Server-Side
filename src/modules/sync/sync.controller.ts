@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToCompleted } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToFinalized } from './sync.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -89,12 +89,12 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
     });
   }
 
-  if (syncRun.status === 'completed') {
+  if (syncRun.status === 'completed' || syncRun.status === 'partial_success' || syncRun.status === 'incomplete' || (syncRun.status === 'failed' && syncRun.result)) {
     return res.status(200).json({
-      success: true,
+      success: syncRun.result ? syncRun.result.success : false,
       syncId: syncRun._id?.toString(),
       targetDate: syncRun.targetDate,
-      status: 'completed',
+      status: syncRun.status,
       result: syncRun.result,
       completedAt: syncRun.completedAt
     });
@@ -111,7 +111,7 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
   }
 });
 
-export const internalCompleteSync = catchAsync(async (req: Request, res: Response) => {
+export const internalFinalizeSync = catchAsync(async (req: Request, res: Response) => {
   const syncId = req.params.syncId as string;
   const data = req.body;
 
@@ -137,10 +137,16 @@ export const internalCompleteSync = catchAsync(async (req: Request, res: Respons
     return res.status(400).json({ message: 'targetDate mismatch' });
   }
 
+  const allowedStatuses = ['COMPLETED', 'PARTIAL_SUCCESS', 'FAILED', 'INCOMPLETE'];
+  if (!allowedStatuses.includes(data.status)) {
+    return res.status(400).json({ message: 'Invalid status provided' });
+  }
+
   if (
-    data.success !== true ||
+    typeof data.success !== 'boolean' ||
     typeof data.targetDate !== 'string' ||
     !isNonNegativeFiniteNumber(data.totalCandidates) ||
+    !isNonNegativeFiniteNumber(data.processed) ||
     !isNonNegativeFiniteNumber(data.created) ||
     !isNonNegativeFiniteNumber(data.skippedDuplicates) ||
     !isNonNegativeFiniteNumber(data.qualitySkipped) ||
@@ -166,10 +172,39 @@ export const internalCompleteSync = catchAsync(async (req: Request, res: Respons
     }
   }
 
+  const derivedProcessed = data.created + data.skippedDuplicates + data.qualitySkipped + data.failed;
+  if (data.processed !== derivedProcessed) {
+    return res.status(400).json({ message: 'processed must equal created + skippedDuplicates + qualitySkipped + failed' });
+  }
+
+  if (data.processed > data.totalCandidates) {
+    return res.status(400).json({ message: 'processed cannot exceed totalCandidates' });
+  }
+
+  if (data.status === 'COMPLETED') {
+    if (data.processed !== data.totalCandidates || data.failed !== 0 || data.success !== true) {
+      return res.status(400).json({ message: 'Invalid status condition: COMPLETED requires processed === totalCandidates, failed === 0, success === true' });
+    }
+  } else if (data.status === 'PARTIAL_SUCCESS') {
+    if (data.processed !== data.totalCandidates || data.failed === 0 || data.created === 0 || data.success !== false) {
+      return res.status(400).json({ message: 'Invalid status condition: PARTIAL_SUCCESS requires processed === totalCandidates, failed > 0, created > 0, success === false' });
+    }
+  } else if (data.status === 'FAILED') {
+    if (data.processed !== data.totalCandidates || data.failed === 0 || data.created !== 0 || data.success !== false) {
+      return res.status(400).json({ message: 'Invalid status condition: FAILED requires processed === totalCandidates, failed > 0, created === 0, success === false' });
+    }
+  } else if (data.status === 'INCOMPLETE') {
+    if (data.processed >= data.totalCandidates || data.success !== false) {
+      return res.status(400).json({ message: 'Invalid status condition: INCOMPLETE requires processed < totalCandidates, success === false' });
+    }
+  }
+
   const resultPayload = {
     success: data.success,
+    status: data.status as 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'INCOMPLETE',
     targetDate: data.targetDate,
     totalCandidates: data.totalCandidates,
+    processed: data.processed,
     created: data.created,
     skippedDuplicates: data.skippedDuplicates,
     qualitySkipped: data.qualitySkipped,
@@ -178,12 +213,21 @@ export const internalCompleteSync = catchAsync(async (req: Request, res: Respons
     message: typeof data.message === 'string' ? data.message : undefined
   };
 
-  const updated = await updateSyncRunToCompleted(syncId, resultPayload);
+  const internalStatusMap: Record<string, 'completed' | 'partial_success' | 'failed' | 'incomplete'> = {
+    'COMPLETED': 'completed',
+    'PARTIAL_SUCCESS': 'partial_success',
+    'FAILED': 'failed',
+    'INCOMPLETE': 'incomplete'
+  };
+
+  const dbStatus = internalStatusMap[data.status];
+
+  const updated = await updateSyncRunToFinalized(syncId, dbStatus, resultPayload);
   if (!updated) {
     return res.status(200).json({ message: 'Sync run is already finalized' });
   }
 
-  return res.status(200).json({ message: 'Sync completed' });
+  return res.status(200).json({ message: 'Sync finalized successfully' });
 });
 
 export const internalFailSync = catchAsync(async (req: Request, res: Response) => {

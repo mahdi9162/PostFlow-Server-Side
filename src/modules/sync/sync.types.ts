@@ -10,8 +10,10 @@ export interface AccountSyncSummary {
 
 export interface SyncRunResult {
   success: boolean;
+  status: 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'INCOMPLETE';
   targetDate: string;
   totalCandidates: number;
+  processed: number;
   created: number;
   skippedDuplicates: number;
   qualitySkipped: number;
@@ -23,7 +25,7 @@ export interface SyncRunResult {
 export interface SyncRun {
   _id?: ObjectId;
   targetDate: string;
-  status: 'running' | 'completed' | 'failed';
+  status: 'running' | 'completed' | 'partial_success' | 'failed' | 'incomplete';
   triggeredBy: string;
   result?: SyncRunResult;
   errorMessage?: string;
