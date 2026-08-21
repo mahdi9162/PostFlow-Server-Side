@@ -12,14 +12,15 @@ export interface SyncRunResult {
   success: boolean;
   status: 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'INCOMPLETE';
   targetDate: string;
-  totalCandidates: number;
-  processed: number;
-  created: number;
-  skippedDuplicates: number;
-  qualitySkipped: number;
-  failed: number;
-  accounts: Record<string, AccountSyncSummary>;
+  totalCandidates?: number;
+  processed?: number;
+  created?: number;
+  skippedDuplicates?: number;
+  qualitySkipped?: number;
+  failed?: number;
+  accounts?: Record<string, AccountSyncSummary>;
   message?: string;
+  resolutionReason?: 'STALE_TIMEOUT';
 }
 
 export interface SyncRun {

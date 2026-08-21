@@ -14,11 +14,35 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
     } as PlatformSettings;
   }
   
-  return settings;
+  // Normalize settings with defaults for missing fields
+  const normalizedSettings: PlatformSettings = {
+    ...settings,
+    retention: {
+      syncHistory: {
+        ...DEFAULT_PLATFORM_SETTINGS.retention.syncHistory,
+        ...(settings.retention?.syncHistory || {})
+      },
+      posts: {
+        ...DEFAULT_PLATFORM_SETTINGS.retention.posts,
+        ...(settings.retention?.posts || {})
+      }
+    },
+    sync: {
+      staleRun: {
+        ...DEFAULT_PLATFORM_SETTINGS.sync!.staleRun!,
+        ...(settings.sync?.staleRun || {})
+      }
+    }
+  };
+
+  return normalizedSettings;
 };
 
 export const updatePlatformSettings = async (
-  retentionUpdates: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy }
+  updates: { 
+    retention?: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy };
+    sync?: { staleRun?: { enabled?: boolean; timeoutMinutes?: number } };
+  }
 ): Promise<PlatformSettings> => {
   const db = getDB();
   const now = new Date();
@@ -26,8 +50,16 @@ export const updatePlatformSettings = async (
   const existing = await getPlatformSettings();
 
   const newRetention = {
-    syncHistory: { ...existing.retention.syncHistory, ...(retentionUpdates.syncHistory || {}) },
-    posts: { ...existing.retention.posts, ...(retentionUpdates.posts || {}) },
+    syncHistory: { ...existing.retention.syncHistory, ...(updates.retention?.syncHistory || {}) },
+    posts: { ...existing.retention.posts, ...(updates.retention?.posts || {}) },
+  };
+
+  const newSync = {
+    ...existing.sync,
+    staleRun: {
+      ...(existing.sync?.staleRun || DEFAULT_PLATFORM_SETTINGS.sync!.staleRun!),
+      ...(updates.sync?.staleRun || {})
+    }
   };
 
   const result = await db.collection<PlatformSettings>('platformSettings').findOneAndUpdate(
@@ -35,6 +67,7 @@ export const updatePlatformSettings = async (
     {
       $set: {
         retention: newRetention,
+        sync: newSync,
         updatedAt: now,
       },
       $setOnInsert: {

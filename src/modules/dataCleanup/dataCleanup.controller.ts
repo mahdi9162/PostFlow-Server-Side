@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { runCleanup } from './dataCleanup.service';
+import { resolveStaleSyncRuns } from '../sync/staleSync.service';
 import { getDB } from '../../config/db';
 import crypto from 'crypto';
 
@@ -48,8 +49,16 @@ export const runScheduledCleanup = async (req: Request, res: Response) => {
   try {
     console.log('Scheduled cleanup started.');
 
+    let staleSyncsResult;
     let syncHistoryResult;
     let postsResult;
+
+    try {
+      staleSyncsResult = await resolveStaleSyncRuns({ dryRun: false });
+    } catch (error: any) {
+      console.error('stale sync resolution failed:', error);
+      staleSyncsResult = { success: false, error: error.message };
+    }
 
     try {
       syncHistoryResult = await runCleanup({ target: 'syncHistory', dryRun: false });
@@ -70,6 +79,7 @@ export const runScheduledCleanup = async (req: Request, res: Response) => {
     return res.status(200).json({
       message: 'Scheduled cleanup completed',
       results: {
+        staleSyncs: staleSyncsResult,
         syncHistory: syncHistoryResult,
         posts: postsResult,
       },
