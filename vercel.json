@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/internal/cron/data-cleanup",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index.ts" }
   ]
