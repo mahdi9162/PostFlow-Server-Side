@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToFinalized } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -54,6 +54,33 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
     targetDate,
     status: 'running',
     message: 'Sync started'
+  });
+});
+
+export const getSyncHistory = catchAsync(async (req: Request, res: Response) => {
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 10;
+
+  const uid = req.user?.uid;
+  if (!uid) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const user = await findUserByFirebaseUid(uid);
+  if (!user || user.status !== 'approved' || (user.role !== 'admin' && user.role !== 'creator')) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  const { runs, totalCount } = await getPaginatedSyncHistory(page, limit);
+
+  return res.status(200).json({
+    runs,
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages: Math.ceil(totalCount / limit)
+    }
   });
 });
 

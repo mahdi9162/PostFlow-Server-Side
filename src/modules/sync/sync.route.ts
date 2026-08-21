@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { prepareSync, getSyncStatus, internalFinalizeSync, internalFailSync } from './sync.controller';
+import { prepareSync, getSyncStatus, internalFinalizeSync, internalFailSync, getSyncHistory } from './sync.controller';
 import { verifyFirebaseToken } from '../../middleware/auth.middleware';
 import { verifyInternalApiKey } from '../../middleware/internalAuth.middleware';
 
 const router = Router();
 
 router.post('/prepare', verifyFirebaseToken, prepareSync);
+router.get('/history', verifyFirebaseToken, getSyncHistory);
+router.get('/history/:syncId', verifyFirebaseToken, getSyncStatus);
 router.get('/:syncId', verifyFirebaseToken, getSyncStatus);
 
 export default router;

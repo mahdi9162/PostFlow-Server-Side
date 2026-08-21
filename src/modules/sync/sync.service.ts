@@ -29,6 +29,23 @@ export const getSyncRunById = async (syncId: string): Promise<SyncRun | null> =>
   return db.collection<SyncRun>('syncRuns').findOne({ _id: new ObjectId(syncId) });
 };
 
+export const getPaginatedSyncHistory = async (page: number, limit: number) => {
+  const db = getDB();
+  const skip = (page - 1) * limit;
+
+  const [runs, totalCount] = await Promise.all([
+    db.collection<SyncRun>('syncRuns')
+      .find({}, { projection: { 'result.accounts': 0 } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .toArray(),
+    db.collection<SyncRun>('syncRuns').countDocuments()
+  ]);
+
+  return { runs, totalCount };
+};
+
 export const updateSyncRunToFailed = async (syncId: string, errorMessage: string): Promise<boolean> => {
   const db = getDB();
   const update = {
