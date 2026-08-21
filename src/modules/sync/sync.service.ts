@@ -8,6 +8,7 @@ interface SyncRequestPayload {
   triggeredBy: string;
   requestId: string;
   syncId: string;
+  aiConfig: any; // Using any or importing AiTaskConfig from platformSettings.types.ts
 }
 
 export const createSyncRun = async (targetDate: string, triggeredBy: string): Promise<ObjectId> => {

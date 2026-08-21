@@ -53,17 +53,24 @@ export const getSettings = catchAsync(async (req: Request, res: Response) => {
 export const updateSettings = catchAsync(async (req: Request, res: Response) => {
   if (!(await requireAdminAccess(req, res))) return;
 
-  const { retention, sync } = req.body;
+  const { retention, sync, ai } = req.body;
   if (retention !== undefined && (typeof retention !== 'object' || Array.isArray(retention))) {
     return res.status(400).json({ message: 'Invalid payload: retention must be an object' });
   }
   if (sync !== undefined && (typeof sync !== 'object' || Array.isArray(sync))) {
     return res.status(400).json({ message: 'Invalid payload: sync must be an object' });
   }
+  if (ai !== undefined && (typeof ai !== 'object' || Array.isArray(ai))) {
+    return res.status(400).json({ message: 'Invalid payload: ai must be an object' });
+  }
 
   const updates: { 
     retention?: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy };
     sync?: { staleRun?: { enabled?: boolean; timeoutMinutes?: number } };
+    ai?: {
+      vision?: any;
+      caption?: any;
+    };
   } = {};
 
   if (retention) {
@@ -110,6 +117,102 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
     }
 
     updates.sync = { staleRun: safeStaleRun };
+  }
+
+  if (ai) {
+    updates.ai = {};
+    
+    const validateTaskConfig = (taskName: 'vision' | 'caption', config: any) => {
+      if (typeof config !== 'object' || Array.isArray(config)) {
+        return res.status(400).json({ message: `ai.${taskName} must be an object` });
+      }
+
+      const safeConfig: any = {};
+      
+      if (config.primaryProvider !== undefined) {
+        if (config.primaryProvider !== 'groq' && config.primaryProvider !== 'gemini') {
+          return res.status(400).json({ message: `ai.${taskName}.primaryProvider must be 'groq' or 'gemini'` });
+        }
+        safeConfig.primaryProvider = config.primaryProvider;
+      }
+      
+      if (config.fallbackProvider !== undefined) {
+        if (config.fallbackProvider !== 'groq' && config.fallbackProvider !== 'gemini') {
+          return res.status(400).json({ message: `ai.${taskName}.fallbackProvider must be 'groq' or 'gemini'` });
+        }
+        safeConfig.fallbackProvider = config.fallbackProvider;
+      }
+
+      if (safeConfig.primaryProvider && safeConfig.fallbackProvider && safeConfig.primaryProvider === safeConfig.fallbackProvider) {
+        return res.status(400).json({ message: `ai.${taskName} primaryProvider and fallbackProvider cannot be the same` });
+      }
+
+      if (config.providers !== undefined) {
+        if (typeof config.providers !== 'object' || Array.isArray(config.providers)) {
+          return res.status(400).json({ message: `ai.${taskName}.providers must be an object` });
+        }
+        
+        safeConfig.providers = {};
+
+        const validateProviderModels = (providerName: 'groq' | 'gemini') => {
+          const p = config.providers[providerName];
+          if (p !== undefined) {
+            if (typeof p !== 'object' || Array.isArray(p)) {
+              return res.status(400).json({ message: `ai.${taskName}.providers.${providerName} must be an object` });
+            }
+            if (p.models !== undefined) {
+              if (!Array.isArray(p.models)) {
+                return res.status(400).json({ message: `ai.${taskName}.providers.${providerName}.models must be an array` });
+              }
+              const models = p.models as any[];
+              if (!models.every(m => typeof m === 'string')) {
+                return res.status(400).json({ message: `ai.${taskName}.providers.${providerName}.models must contain only strings` });
+              }
+              
+              const trimmed = models.map(m => (m as string).trim()).filter(Boolean);
+              
+              if (trimmed.length !== models.length) {
+                return res.status(400).json({ message: `ai.${taskName}.providers.${providerName}.models cannot contain empty strings or whitespace-only strings` });
+              }
+              
+              if (new Set(trimmed).size !== trimmed.length) {
+                return res.status(400).json({ message: `ai.${taskName}.providers.${providerName}.models cannot contain duplicate values` });
+              }
+              
+              const currentPrimary = safeConfig.primaryProvider || config.primaryProvider; // If this patch does not have primaryProvider, it depends on DB state which we don't have here perfectly synchronized, but we can do a baseline check on the patch itself if both are provided. 
+              // The rule: primaryProvider must have at least 1 valid model.
+              // We will just do a general rule: if it's the primaryProvider in the payload, it must have > 0 models.
+              if (currentPrimary === providerName && trimmed.length === 0) {
+                 return res.status(400).json({ message: `The primaryProvider (${providerName}) must have at least one valid model.` });
+              }
+
+              safeConfig.providers[providerName] = { models: trimmed };
+            }
+          }
+          return null;
+        };
+
+        const groqError = validateProviderModels('groq');
+        if (groqError) return groqError;
+        
+        const geminiError = validateProviderModels('gemini');
+        if (geminiError) return geminiError;
+      }
+      
+      return safeConfig;
+    };
+
+    if (ai.vision !== undefined) {
+      const visionConfig = validateTaskConfig('vision', ai.vision);
+      if (visionConfig.statusCode) return visionConfig; // It returned a response error
+      updates.ai.vision = visionConfig;
+    }
+
+    if (ai.caption !== undefined) {
+      const captionConfig = validateTaskConfig('caption', ai.caption);
+      if (captionConfig.statusCode) return captionConfig; // It returned a response error
+      updates.ai.caption = captionConfig;
+    }
   }
 
   const updatedSettings = await updatePlatformSettings(updates);

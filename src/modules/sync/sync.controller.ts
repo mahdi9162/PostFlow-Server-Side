@@ -5,6 +5,7 @@ import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
 import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
+import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -33,12 +34,14 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
 
   const triggeredBy = user.email || uid;
   const syncId = await createSyncRun(targetDate, triggeredBy);
+  const settings = await getPlatformSettings();
 
   const payload = {
     targetDate,
     triggeredBy,
     requestId: crypto.randomUUID(),
     syncId: syncId.toString(),
+    aiConfig: settings.ai,
   };
 
   try {
