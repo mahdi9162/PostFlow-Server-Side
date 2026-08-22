@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
 import * as postService from './post.service';
 import * as userService from '../user/user.service';
-import { validateAndDeriveDay, parseDriveFileId } from './post.helper';
+import { validateAndDeriveDay, parseDriveFileId, generateDriveFileFingerprint } from './post.helper';
 import { Post, PostMedia } from './post.types';
 import { driveClient } from '../../config/drive.config';
 
@@ -38,9 +38,24 @@ const handleCreatePostLogic = async (postData: any, createdBy: 'manual' | 'autom
     if (!fileId) {
       throw new Error('Invalid Google Drive link provided');
     }
+    
+    let fingerprint: string | undefined;
+    if (createdBy === 'manual' || !inputMedia?.fingerprint) {
+      try {
+        fingerprint = await generateDriveFileFingerprint(fileId);
+      } catch (error: any) {
+        const err: any = new Error(`Failed to process Drive link: ${error.message}`);
+        err.statusCode = 400;
+        throw err;
+      }
+    } else {
+      fingerprint = inputMedia.fingerprint;
+    }
+
     media = {
       provider: 'google-drive',
       driveFileId: fileId,
+      ...(fingerprint ? { fingerprint } : {})
     };
   }
 
@@ -297,14 +312,22 @@ export const updatePost = async (req: Request, res: Response) => {
           return res.status(400).json({ message: 'Invalid Google Drive link provided' });
         }
         
+        let fingerprint: string | undefined;
+        if (!inputMedia?.fingerprint) {
+          try {
+            fingerprint = await generateDriveFileFingerprint(fileId);
+          } catch (error: any) {
+            return res.status(400).json({ message: `Failed to process Drive link: ${error.message}` });
+          }
+        } else {
+          fingerprint = inputMedia.fingerprint;
+        }
+
         finalMedia = {
           provider: 'google-drive',
           driveFileId: fileId,
+          ...(fingerprint ? { fingerprint } : {})
         };
-        
-        if (inputMedia?.fingerprint) {
-          finalMedia.fingerprint = inputMedia.fingerprint;
-        }
 
         updatedDoc.$set.driveLink = driveLink;
         mediaChanged = true;
