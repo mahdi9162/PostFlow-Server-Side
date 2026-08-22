@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
@@ -84,6 +84,14 @@ export const retryFailedSync = catchAsync(async (req: Request, res: Response) =>
 
   if (!originalSyncRun.result?.failedItems || originalSyncRun.result.failedItems.length === 0) {
     return res.status(400).json({ message: 'This sync run has no failed items to retry.' });
+  }
+
+  const existingRetry = await getChildRetrySyncRun(syncId);
+  if (existingRetry) {
+    return res.status(409).json({
+      message: 'This sync run has already been retried.',
+      retryRunId: existingRetry._id?.toString()
+    });
   }
 
   const triggeredBy = user.email || uid;
@@ -178,7 +186,9 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       syncId: syncRun._id?.toString(),
       targetDate: syncRun.targetDate,
       status: 'running',
-      createdAt: syncRun.createdAt
+      createdAt: syncRun.createdAt,
+      retryOf: syncRun.retryOf,
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
   }
 
@@ -189,7 +199,9 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       targetDate: syncRun.targetDate,
       status: syncRun.status,
       result: syncRun.result,
-      completedAt: syncRun.completedAt
+      completedAt: syncRun.completedAt,
+      retryOf: syncRun.retryOf,
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
   }
 
@@ -199,7 +211,9 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       syncId: syncRun._id?.toString(),
       targetDate: syncRun.targetDate,
       status: 'failed',
-      message: syncRun.errorMessage || 'Sync failed.'
+      message: syncRun.errorMessage || 'Sync failed.',
+      retryOf: syncRun.retryOf,
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
   }
 });

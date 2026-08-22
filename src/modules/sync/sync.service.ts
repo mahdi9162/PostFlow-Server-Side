@@ -32,6 +32,14 @@ export const getSyncRunById = async (syncId: string): Promise<SyncRun | null> =>
   return db.collection<SyncRun>('syncRuns').findOne({ _id: new ObjectId(syncId) });
 };
 
+export const getChildRetrySyncRun = async (syncId: string): Promise<SyncRun | null> => {
+  const db = getDB();
+  return db.collection<SyncRun>('syncRuns').findOne(
+    { retryOf: syncId },
+    { sort: { createdAt: -1 } }
+  );
+};
+
 export const getPaginatedSyncHistory = async (page: number, limit: number) => {
   const db = getDB();
   const skip = (page - 1) * limit;
