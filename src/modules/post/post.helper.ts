@@ -25,7 +25,26 @@ export const parseDriveFileId = (url: string): string | null => {
   return match ? match[1] : null;
 };
 
-export const generateDriveFileFingerprint = async (fileId: string): Promise<string> => {
+export const getDriveFileDetails = async (fileId: string): Promise<{ fingerprint: string; fileName: string; mimeType: string }> => {
+  let metaRes;
+  try {
+    metaRes = await driveClient.files.get({
+      fileId,
+      fields: 'name, mimeType',
+    });
+  } catch (error: any) {
+    const status = error.code || error.status || 500;
+    if (status === 404) {
+      throw new Error('Media file is not found in Google Drive.');
+    }
+    if (status === 403) {
+      throw new Error('You do not have access to this Google Drive media.');
+    }
+    throw new Error('Failed to access Google Drive media metadata.');
+  }
+
+  const { name: fileName, mimeType } = metaRes.data;
+
   return new Promise(async (resolve, reject) => {
     let streamRes;
     try {
@@ -34,14 +53,7 @@ export const generateDriveFileFingerprint = async (fileId: string): Promise<stri
         { responseType: 'stream' }
       );
     } catch (error: any) {
-      const status = error.code || error.status || 500;
-      if (status === 404) {
-        return reject(new Error('Media file is not found in Google Drive.'));
-      }
-      if (status === 403) {
-        return reject(new Error('You do not have access to this Google Drive media.'));
-      }
-      return reject(new Error('Failed to access Google Drive media.'));
+      return reject(new Error('Failed to access Google Drive media stream.'));
     }
 
     const hash = crypto.createHash('sha256');
@@ -52,7 +64,11 @@ export const generateDriveFileFingerprint = async (fileId: string): Promise<stri
     });
 
     driveStream.on('end', () => {
-      resolve(hash.digest('hex'));
+      resolve({
+        fingerprint: hash.digest('hex'),
+        fileName: fileName || 'unknown',
+        mimeType: mimeType || 'application/octet-stream',
+      });
     });
 
     driveStream.on('error', (err: any) => {

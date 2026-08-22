@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
 import * as postService from './post.service';
 import * as userService from '../user/user.service';
-import { validateAndDeriveDay, parseDriveFileId, generateDriveFileFingerprint } from './post.helper';
+import { validateAndDeriveDay, parseDriveFileId, getDriveFileDetails } from './post.helper';
 import { Post, PostMedia } from './post.types';
 import { driveClient } from '../../config/drive.config';
 
@@ -40,9 +40,15 @@ const handleCreatePostLogic = async (postData: any, createdBy: 'manual' | 'autom
     }
     
     let fingerprint: string | undefined;
-    if (createdBy === 'manual' || !inputMedia?.fingerprint) {
+    let fileName: string | undefined;
+    let mimeType: string | undefined;
+
+    if (createdBy === 'manual' || !inputMedia?.fingerprint || !inputMedia?.fileName || !inputMedia?.mimeType) {
       try {
-        fingerprint = await generateDriveFileFingerprint(fileId);
+        const details = await getDriveFileDetails(fileId);
+        fingerprint = inputMedia?.fingerprint || details.fingerprint;
+        fileName = inputMedia?.fileName || details.fileName;
+        mimeType = inputMedia?.mimeType || details.mimeType;
       } catch (error: any) {
         const err: any = new Error(`Failed to process Drive link: ${error.message}`);
         err.statusCode = 400;
@@ -50,12 +56,16 @@ const handleCreatePostLogic = async (postData: any, createdBy: 'manual' | 'autom
       }
     } else {
       fingerprint = inputMedia.fingerprint;
+      fileName = inputMedia.fileName;
+      mimeType = inputMedia.mimeType;
     }
 
     media = {
       provider: 'google-drive',
       driveFileId: fileId,
-      ...(fingerprint ? { fingerprint } : {})
+      ...(fingerprint ? { fingerprint } : {}),
+      ...(fileName ? { fileName } : {}),
+      ...(mimeType ? { mimeType } : {})
     };
   }
 
@@ -313,20 +323,30 @@ export const updatePost = async (req: Request, res: Response) => {
         }
         
         let fingerprint: string | undefined;
-        if (!inputMedia?.fingerprint) {
+        let fileName: string | undefined;
+        let mimeType: string | undefined;
+
+        if (!inputMedia?.fingerprint || !inputMedia?.fileName || !inputMedia?.mimeType) {
           try {
-            fingerprint = await generateDriveFileFingerprint(fileId);
+            const details = await getDriveFileDetails(fileId);
+            fingerprint = inputMedia?.fingerprint || details.fingerprint;
+            fileName = inputMedia?.fileName || details.fileName;
+            mimeType = inputMedia?.mimeType || details.mimeType;
           } catch (error: any) {
             return res.status(400).json({ message: `Failed to process Drive link: ${error.message}` });
           }
         } else {
           fingerprint = inputMedia.fingerprint;
+          fileName = inputMedia.fileName;
+          mimeType = inputMedia.mimeType;
         }
 
         finalMedia = {
           provider: 'google-drive',
           driveFileId: fileId,
-          ...(fingerprint ? { fingerprint } : {})
+          ...(fingerprint ? { fingerprint } : {}),
+          ...(fileName ? { fileName } : {}),
+          ...(mimeType ? { mimeType } : {})
         };
 
         updatedDoc.$set.driveLink = driveLink;
