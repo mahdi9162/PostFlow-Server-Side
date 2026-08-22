@@ -8,6 +8,34 @@ export interface AccountSyncSummary {
   failed: number;
 }
 
+export type FailedSyncItem = {
+  account: string;
+  driveFileId: string;
+  fileName?: string;
+  mimeType?: string;
+  fingerprint?: string;
+
+  stage:
+    | 'duplicate-check'
+    | 'vision'
+    | 'caption'
+    | 'create-post'
+    | 'workflow';
+
+  reason: string;
+  message: string;
+
+  attempts?: Array<{
+    stage: 'vision' | 'caption';
+    provider: 'groq' | 'gemini';
+    model: string;
+    success: boolean;
+    statusCode?: number | null;
+    reason: string;
+    message?: string;
+  }>;
+};
+
 export interface SyncRunResult {
   success: boolean;
   status: 'COMPLETED' | 'PARTIAL_SUCCESS' | 'FAILED' | 'INCOMPLETE';
@@ -21,6 +49,7 @@ export interface SyncRunResult {
   accounts?: Record<string, AccountSyncSummary>;
   message?: string;
   resolutionReason?: 'STALE_TIMEOUT';
+  failedItems?: FailedSyncItem[];
 }
 
 export interface SyncRun {

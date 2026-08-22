@@ -36,7 +36,7 @@ export const getPaginatedSyncHistory = async (page: number, limit: number) => {
 
   const [runs, totalCount] = await Promise.all([
     db.collection<SyncRun>('syncRuns')
-      .find({}, { projection: { 'result.accounts': 0 } })
+      .find({}, { projection: { 'result.accounts': 0, 'result.failedItems': 0 } })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)

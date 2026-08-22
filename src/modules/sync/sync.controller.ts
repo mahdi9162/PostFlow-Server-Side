@@ -240,7 +240,8 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
     qualitySkipped: data.qualitySkipped,
     failed: data.failed,
     accounts: data.accounts,
-    message: typeof data.message === 'string' ? data.message : undefined
+    message: typeof data.message === 'string' ? data.message : undefined,
+    failedItems: Array.isArray(data.failedItems) ? data.failedItems : []
   };
 
   const internalStatusMap: Record<string, 'completed' | 'partial_success' | 'failed' | 'incomplete'> = {
