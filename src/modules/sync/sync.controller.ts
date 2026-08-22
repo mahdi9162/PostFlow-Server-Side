@@ -60,6 +60,69 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+export const retryFailedSync = catchAsync(async (req: Request, res: Response) => {
+  const syncId = req.params.syncId as string;
+
+  if (!ObjectId.isValid(syncId)) {
+    return res.status(400).json({ message: 'Invalid syncId' });
+  }
+
+  const uid = req.user?.uid;
+  if (!uid) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const user = await findUserByFirebaseUid(uid);
+  if (!user || user.status !== 'approved' || (user.role !== 'admin' && user.role !== 'creator')) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  const originalSyncRun = await getSyncRunById(syncId);
+  if (!originalSyncRun) {
+    return res.status(404).json({ message: 'Sync run not found' });
+  }
+
+  if (!originalSyncRun.result?.failedItems || originalSyncRun.result.failedItems.length === 0) {
+    return res.status(400).json({ message: 'This sync run has no failed items to retry.' });
+  }
+
+  const triggeredBy = user.email || uid;
+  const newSyncId = await createSyncRun(originalSyncRun.targetDate, triggeredBy, syncId);
+  const settings = await getPlatformSettings();
+
+  const retryItems = originalSyncRun.result.failedItems.map((item) => ({
+    account: item.account,
+    driveFileId: item.driveFileId,
+    fileName: item.fileName,
+    mimeType: item.mimeType,
+    fingerprint: item.fingerprint
+  }));
+
+  const payload = {
+    targetDate: originalSyncRun.targetDate,
+    triggeredBy,
+    requestId: crypto.randomUUID(),
+    syncId: newSyncId.toString(),
+    aiConfig: settings.ai,
+    retryItems,
+  };
+
+  try {
+    await triggerSync(payload);
+  } catch (error: any) {
+    await updateSyncRunToFailed(newSyncId.toString(), 'Sync workflow could not be started.');
+    return res.status(502).json({ message: 'Sync workflow could not be started.' });
+  }
+
+  return res.status(200).json({
+    success: true,
+    syncId: newSyncId.toString(),
+    targetDate: originalSyncRun.targetDate,
+    status: 'running',
+    message: 'Retry sync started'
+  });
+});
+
 export const getSyncHistory = catchAsync(async (req: Request, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;

@@ -9,9 +9,10 @@ interface SyncRequestPayload {
   requestId: string;
   syncId: string;
   aiConfig: any; // Using any or importing AiTaskConfig from platformSettings.types.ts
+  retryItems?: any[];
 }
 
-export const createSyncRun = async (targetDate: string, triggeredBy: string): Promise<ObjectId> => {
+export const createSyncRun = async (targetDate: string, triggeredBy: string, retryOf?: string): Promise<ObjectId> => {
   const db = getDB();
   const newSyncRun: SyncRun = {
     targetDate,
@@ -19,6 +20,7 @@ export const createSyncRun = async (targetDate: string, triggeredBy: string): Pr
     triggeredBy,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...(retryOf ? { retryOf } : {}),
   };
 
   const result = await db.collection<SyncRun>('syncRuns').insertOne(newSyncRun);

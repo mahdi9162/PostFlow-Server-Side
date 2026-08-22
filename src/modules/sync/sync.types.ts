@@ -8,6 +8,14 @@ export interface AccountSyncSummary {
   failed: number;
 }
 
+export interface RetryItem {
+  account: string;
+  driveFileId: string;
+  fileName?: string;
+  mimeType?: string;
+  fingerprint?: string;
+}
+
 export type FailedSyncItem = {
   account: string;
   driveFileId: string;
@@ -62,4 +70,5 @@ export interface SyncRun {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
+  retryOf?: string;
 }
