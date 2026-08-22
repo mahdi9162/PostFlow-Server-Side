@@ -31,3 +31,6 @@ export const internalPostRouter = Router();
 
 // FOR POSTS - internal automation api
 internalPostRouter.post('/', verifyInternalApiKey, catchAsync(postController.createInternalPost));
+
+// Internal pre-check duplicate api
+internalPostRouter.post('/check-duplicate', verifyInternalApiKey, catchAsync(postController.checkDuplicate));

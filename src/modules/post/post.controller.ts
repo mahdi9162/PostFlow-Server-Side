@@ -92,13 +92,6 @@ const handleCreatePostLogic = async (postData: any, createdBy: 'manual' | 'autom
       err.statusCode = 400;
       throw err;
     }
-
-    const isDuplicate = await postService.checkDuplicatePost(safeAccount, scheduledDate, media.fingerprint);
-    if (isDuplicate) {
-      const err: any = new Error('Duplicate media already exists for this account and scheduled date.');
-      err.statusCode = 409;
-      throw err;
-    }
   }
 
   let finalHashtags = hashtags;
@@ -172,6 +165,26 @@ export const createInternalPost = async (req: Request, res: Response) => {
   } catch (error: any) {
     const status = error.statusCode || (error.message.includes('required') || error.message.includes('Invalid') ? 400 : 500);
     res.status(status).json({ message: error.message });
+  }
+};
+
+export const checkDuplicate = async (req: Request, res: Response) => {
+  try {
+    const { account, scheduledDate, fingerprint } = req.body;
+    
+    if (!account || !scheduledDate || !fingerprint) {
+      return res.status(400).json({ message: 'account, scheduledDate, and fingerprint are required' });
+    }
+
+    const isDuplicate = await postService.checkDuplicatePost(account, scheduledDate, fingerprint);
+    
+    if (isDuplicate) {
+      return res.status(200).json({ duplicate: true, existingPostId: isDuplicate._id });
+    }
+    
+    res.status(200).json({ duplicate: false });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -349,12 +362,7 @@ export const updatePost = async (req: Request, res: Response) => {
     }
 
     if (safeAccount || safeScheduledDate || mediaChanged) {
-      if (finalMedia?.fingerprint) {
-        const isDuplicate = await postService.checkDuplicatePost(finalAccount, finalScheduledDate, finalMedia.fingerprint, id);
-        if (isDuplicate) {
-          return res.status(409).json({ message: 'Duplicate media already exists for this account and scheduled date.' });
-        }
-      }
+      // Manual check removed. The unique DB index will prevent duplicates.
     }
 
     try {
