@@ -16,6 +16,14 @@ export interface AiTaskConfig {
   };
 }
 
+export interface DriveAutomationConfig {
+  enabled: boolean;
+  prepareDaysAhead: number;
+  cleanupEnabled: boolean;
+  deleteFoldersOlderThanDays: number;
+  cleanupTime: string;
+}
+
 export interface PlatformSettings {
   _id?: string;
   retention: {
@@ -32,6 +40,7 @@ export interface PlatformSettings {
     vision: AiTaskConfig;
     caption: AiTaskConfig;
   };
+  driveAutomation?: DriveAutomationConfig;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -61,5 +70,12 @@ export const DEFAULT_PLATFORM_SETTINGS: Omit<PlatformSettings, 'createdAt' | 'up
         gemini: { models: [] },
       },
     },
+  },
+  driveAutomation: {
+    enabled: true,
+    prepareDaysAhead: 30,
+    cleanupEnabled: true,
+    deleteFoldersOlderThanDays: 7,
+    cleanupTime: "03:00"
   },
 };

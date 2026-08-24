@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { verifyFirebaseToken } from '../../middleware/auth.middleware';
-import { getSettings, updateSettings, previewCleanup, executeCleanup, previewStaleSyncs, resolveStaleSyncs } from './platformSettings.controller';
+import { verifyInternalApiKey } from '../../middleware/internalAuth.middleware';
+import { getSettings, getInternalSettings, updateSettings, previewCleanup, executeCleanup, previewStaleSyncs, resolveStaleSyncs } from './platformSettings.controller';
 
 const router = Router();
 
@@ -14,3 +15,8 @@ router.post('/stale-syncs/preview', verifyFirebaseToken, previewStaleSyncs);
 router.post('/stale-syncs/resolve', verifyFirebaseToken, resolveStaleSyncs);
 
 export default router;
+
+const internalRouter = Router();
+internalRouter.get('/', verifyInternalApiKey, getInternalSettings);
+
+export const internalPlatformSettingsRouter = internalRouter;

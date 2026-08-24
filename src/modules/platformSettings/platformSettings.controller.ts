@@ -3,7 +3,7 @@ import catchAsync from '../../utils/catchAsync';
 import { resolveStaleSyncRuns } from '../sync/staleSync.service';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { getPlatformSettings, updatePlatformSettings } from './platformSettings.service';
-import { RetentionPolicy } from './platformSettings.types';
+import { RetentionPolicy, DriveAutomationConfig } from './platformSettings.types';
 import { runCleanup } from '../dataCleanup/dataCleanup.service';
 import { CleanupTarget } from '../dataCleanup/dataCleanup.types';
 
@@ -50,10 +50,15 @@ export const getSettings = catchAsync(async (req: Request, res: Response) => {
   return res.status(200).json(settings);
 });
 
+export const getInternalSettings = catchAsync(async (req: Request, res: Response) => {
+  const settings = await getPlatformSettings();
+  return res.status(200).json(settings);
+});
+
 export const updateSettings = catchAsync(async (req: Request, res: Response) => {
   if (!(await requireAdminAccess(req, res))) return;
 
-  const { retention, sync, ai } = req.body;
+  const { retention, sync, ai, driveAutomation } = req.body;
   if (retention !== undefined && (typeof retention !== 'object' || Array.isArray(retention))) {
     return res.status(400).json({ message: 'Invalid payload: retention must be an object' });
   }
@@ -63,6 +68,9 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
   if (ai !== undefined && (typeof ai !== 'object' || Array.isArray(ai))) {
     return res.status(400).json({ message: 'Invalid payload: ai must be an object' });
   }
+  if (driveAutomation !== undefined && (typeof driveAutomation !== 'object' || Array.isArray(driveAutomation))) {
+    return res.status(400).json({ message: 'Invalid payload: driveAutomation must be an object' });
+  }
 
   const updates: { 
     retention?: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy };
@@ -71,6 +79,7 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
       vision?: any;
       caption?: any;
     };
+    driveAutomation?: Partial<DriveAutomationConfig>;
   } = {};
 
   if (retention) {
@@ -213,6 +222,47 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
       if (captionConfig.statusCode) return captionConfig; // It returned a response error
       updates.ai.caption = captionConfig;
     }
+  }
+
+  if (driveAutomation) {
+    const safeDriveAutomation: Partial<DriveAutomationConfig> = {};
+
+    if (driveAutomation.enabled !== undefined) {
+      if (typeof driveAutomation.enabled !== 'boolean') {
+        return res.status(400).json({ message: 'driveAutomation.enabled must be a boolean' });
+      }
+      safeDriveAutomation.enabled = driveAutomation.enabled;
+    }
+
+    if (driveAutomation.prepareDaysAhead !== undefined) {
+      if (typeof driveAutomation.prepareDaysAhead !== 'number' || !Number.isInteger(driveAutomation.prepareDaysAhead) || driveAutomation.prepareDaysAhead < 1 || driveAutomation.prepareDaysAhead > 90) {
+        return res.status(400).json({ message: 'driveAutomation.prepareDaysAhead must be an integer between 1 and 90' });
+      }
+      safeDriveAutomation.prepareDaysAhead = driveAutomation.prepareDaysAhead;
+    }
+
+    if (driveAutomation.cleanupEnabled !== undefined) {
+      if (typeof driveAutomation.cleanupEnabled !== 'boolean') {
+        return res.status(400).json({ message: 'driveAutomation.cleanupEnabled must be a boolean' });
+      }
+      safeDriveAutomation.cleanupEnabled = driveAutomation.cleanupEnabled;
+    }
+
+    if (driveAutomation.deleteFoldersOlderThanDays !== undefined) {
+      if (typeof driveAutomation.deleteFoldersOlderThanDays !== 'number' || !Number.isInteger(driveAutomation.deleteFoldersOlderThanDays) || driveAutomation.deleteFoldersOlderThanDays < 1 || driveAutomation.deleteFoldersOlderThanDays > 90) {
+        return res.status(400).json({ message: 'driveAutomation.deleteFoldersOlderThanDays must be an integer between 1 and 90' });
+      }
+      safeDriveAutomation.deleteFoldersOlderThanDays = driveAutomation.deleteFoldersOlderThanDays;
+    }
+
+    if (driveAutomation.cleanupTime !== undefined) {
+      if (typeof driveAutomation.cleanupTime !== 'string' || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(driveAutomation.cleanupTime)) {
+        return res.status(400).json({ message: 'driveAutomation.cleanupTime must be a valid time in HH:mm 24-hour format' });
+      }
+      safeDriveAutomation.cleanupTime = driveAutomation.cleanupTime;
+    }
+
+    updates.driveAutomation = safeDriveAutomation;
   }
 
   const updatedSettings = await updatePlatformSettings(updates);
