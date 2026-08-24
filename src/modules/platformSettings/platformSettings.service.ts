@@ -1,5 +1,5 @@
 import { getDB } from '../../config/db';
-import { PlatformSettings, DEFAULT_PLATFORM_SETTINGS, RetentionPolicy } from './platformSettings.types';
+import { PlatformSettings, DEFAULT_PLATFORM_SETTINGS, RetentionPolicy, DriveAutomationConfig } from './platformSettings.types';
 
 const GLOBAL_SETTINGS_ID = 'global';
 
@@ -62,6 +62,10 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
           }
         }
       }
+    },
+    driveAutomation: {
+      ...DEFAULT_PLATFORM_SETTINGS.driveAutomation!,
+      ...(settings.driveAutomation || {})
     }
   };
 
@@ -90,6 +94,7 @@ export const updatePlatformSettings = async (
         };
       };
     };
+    driveAutomation?: Partial<DriveAutomationConfig>;
   }
 ): Promise<PlatformSettings> => {
   const db = getDB();
@@ -141,6 +146,11 @@ export const updatePlatformSettings = async (
     }
   };
 
+  const newDriveAutomation = {
+    ...existing.driveAutomation,
+    ...(updates.driveAutomation || {})
+  } as DriveAutomationConfig;
+
   const result = await db.collection<PlatformSettings>('platformSettings').findOneAndUpdate(
     { _id: GLOBAL_SETTINGS_ID },
     {
@@ -148,6 +158,7 @@ export const updatePlatformSettings = async (
         retention: newRetention,
         sync: newSync,
         ai: newAi,
+        driveAutomation: newDriveAutomation,
         updatedAt: now,
       },
       $setOnInsert: {
