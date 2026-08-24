@@ -7,6 +7,7 @@ import syncRouter, { internalSyncRouter } from '../modules/sync/sync.route';
 import { accountRoutes, internalAccountRoutes } from '../modules/account/account.route';
 import platformSettingsRouter, { internalPlatformSettingsRouter } from '../modules/platformSettings/platformSettings.route';
 import dataCleanupRouter from '../modules/dataCleanup/dataCleanup.route';
+import { driveAutomationRouter, internalDriveAutomationRouter } from '../modules/driveAutomation/driveAutomation.route';
 
 const router = Router();
 
@@ -23,5 +24,7 @@ router.use('/internal/sync', internalSyncRouter);
 router.use('/settings/platform', platformSettingsRouter);
 router.use('/internal/settings/platform', internalPlatformSettingsRouter);
 router.use('/internal/cron/data-cleanup', dataCleanupRouter);
+router.use('/drive-automation', driveAutomationRouter);
+router.use('/internal/drive-automation', internalDriveAutomationRouter);
 
 export default router;
