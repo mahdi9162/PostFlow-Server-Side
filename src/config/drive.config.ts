@@ -5,6 +5,9 @@ let credentials: any;
 if (env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON) {
   try {
     credentials = JSON.parse(env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON);
+    if (credentials.private_key) {
+      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+    }
   } catch (error) {
     throw new Error('Failed to parse GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON in environment variables.');
   }
