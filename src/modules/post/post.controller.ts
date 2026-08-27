@@ -535,6 +535,13 @@ export const downloadPostMedia = async (req: Request, res: Response) => {
       });
       driveMetadata = metaRes.data;
     } catch (error: any) {
+      console.error("Drive API Error:", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.status,
+        name: error?.name,
+        stack: error?.stack,
+      });
       const status = error.code || error.status || 500;
       if (status === 404) {
         return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
@@ -557,6 +564,13 @@ export const downloadPostMedia = async (req: Request, res: Response) => {
         }
       );
     } catch (error: any) {
+      console.error("Drive API Error:", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.status,
+        name: error?.name,
+        stack: error?.stack,
+      });
       const status = error.code || error.status || 500;
       if (status === 404) {
         return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
