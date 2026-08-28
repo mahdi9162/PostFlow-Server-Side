@@ -499,7 +499,11 @@ export const deletePost = async (req: Request, res: Response) => {
   }
 };
 
-export const downloadPostMedia = async (req: Request, res: Response) => {
+const streamPostMedia = async (
+  req: Request,
+  res: Response,
+  options: { disposition: 'attachment' | 'inline'; cacheControl?: string }
+) => {
   try {
     const { uid } = req.user!;
     const id = req.params.id as string;
@@ -588,10 +592,13 @@ export const downloadPostMedia = async (req: Request, res: Response) => {
     res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${safeFileName.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`
+      `${options.disposition}; filename="${safeFileName.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`
     );
     if (driveMetadata.size) {
       res.setHeader('Content-Length', driveMetadata.size);
+    }
+    if (options.cacheControl) {
+      res.setHeader('Cache-Control', options.cacheControl);
     }
 
     const driveStream: any = streamRes.data;
@@ -616,5 +623,13 @@ export const downloadPostMedia = async (req: Request, res: Response) => {
       res.status(500).json({ message: 'Failed to download media.' });
     }
   }
+};
+
+export const downloadPostMedia = async (req: Request, res: Response) => {
+  return streamPostMedia(req, res, { disposition: 'attachment' });
+};
+
+export const previewPostMedia = async (req: Request, res: Response) => {
+  return streamPostMedia(req, res, { disposition: 'inline', cacheControl: 'private, max-age=86400' });
 };
 

@@ -21,6 +21,9 @@ router.patch('/:id/status', verifyFirebaseToken, catchAsync(postController.updat
 // download media api
 router.get('/:id/media/download', verifyFirebaseToken, catchAsync(postController.downloadPostMedia));
 
+// preview media api
+router.get('/:id/media/preview', verifyFirebaseToken, catchAsync(postController.previewPostMedia));
+
 // post delete api
 router.delete('/:id', verifyFirebaseToken, catchAsync(postController.deletePost));
 
