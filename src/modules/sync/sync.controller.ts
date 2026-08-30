@@ -6,6 +6,8 @@ import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
 import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
+import { findActiveInstagramAccounts } from '../account/account.service';
+import { countPreparedPosts } from '../post/post.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -192,6 +194,7 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       targetDate: syncRun.targetDate,
       status: 'running',
       createdAt: syncRun.createdAt,
+      triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
       retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
@@ -204,7 +207,9 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       targetDate: syncRun.targetDate,
       status: syncRun.status,
       result: syncRun.result,
+      createdAt: syncRun.createdAt,
       completedAt: syncRun.completedAt,
+      triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
       retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
@@ -217,6 +222,9 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       targetDate: syncRun.targetDate,
       status: 'failed',
       message: syncRun.errorMessage || 'Sync failed.',
+      createdAt: syncRun.createdAt,
+      completedAt: syncRun.completedAt,
+      triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
       retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
     });
@@ -378,6 +386,44 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
   const day = validateAndDeriveDay(targetDate);
   if (!day) {
     return res.status(400).json({ message: 'Invalid targetDate format or impossible date' });
+  }
+
+  const activeAccounts = await findActiveInstagramAccounts();
+  let allFulfilled = true;
+  const accountStats: Record<string, { target: number | string, prepared: number }> = {};
+
+  for (const account of activeAccounts) {
+    const target = typeof account.dailyPostTarget === 'number' ? account.dailyPostTarget : Infinity;
+    const prepared = await countPreparedPosts(account.slug, targetDate);
+
+    accountStats[account.slug] = {
+      target: target === Infinity ? 'Infinity' : target,
+      prepared
+    };
+
+    if (prepared < target) {
+      allFulfilled = false;
+    }
+  }
+
+  if (activeAccounts.length === 0) {
+    return res.status(200).json({
+      success: true,
+      status: 'no_work',
+      targetDate,
+      message: 'No active Instagram accounts',
+      accounts: {}
+    });
+  }
+
+  if (allFulfilled) {
+    return res.status(200).json({
+      success: true,
+      status: 'no_work',
+      targetDate,
+      message: 'Daily post targets already fulfilled',
+      accounts: accountStats
+    });
   }
 
   return handleSyncTrigger(targetDate, 'system-auto-sync', res);

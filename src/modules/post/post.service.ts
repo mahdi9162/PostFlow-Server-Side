@@ -27,6 +27,10 @@ export const updatePost = async (id: string, updateData: any) => {
   );
 };
 
+export const countPreparedPosts = async (account: string, scheduledDate: string): Promise<number> => {
+  return await getCollection().countDocuments({ account, scheduledDate });
+};
+
 export const deletePost = async (id: string) => {
   return await getCollection().deleteOne({ _id: new ObjectId(id) });
 };

@@ -8,6 +8,7 @@ export interface Account {
   platform: 'instagram';
   isActive: boolean;
   order: number;
+  dailyPostTarget?: number;
   createdAt: Date;
   updatedAt: Date;
 }

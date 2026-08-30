@@ -32,7 +32,7 @@ export const createAccount = async (req: Request, res: Response) => {
     const isAdmin = await checkAdminRole(uid);
     if (!isAdmin) return res.status(403).json({ message: 'Forbidden: admin only' });
 
-    let { slug, displayName, driveFolderName, platform, isActive, order } = req.body;
+    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget } = req.body;
 
     if (!slug || typeof slug !== 'string') {
       return res.status(400).json({ message: 'slug is required and must be a string' });
@@ -72,12 +72,21 @@ export const createAccount = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'order must be a positive integer' });
     }
 
+    let finalDailyPostTarget = undefined;
+    if (dailyPostTarget !== undefined) {
+      const targetNum = Number(dailyPostTarget);
+      if (!Number.isInteger(targetNum) || targetNum < 1) {
+        return res.status(400).json({ message: 'dailyPostTarget must be a positive integer greater than or equal to 1' });
+      }
+      finalDailyPostTarget = targetNum;
+    }
+
     const existing = await accountService.getAccountBySlug(slug);
     if (existing) {
       return res.status(409).json({ message: 'An account with this slug already exists' });
     }
 
-    const newAccount = {
+    const newAccount: any = {
       slug,
       displayName: displayName.trim(),
       driveFolderName: driveFolderName.trim(),
@@ -85,6 +94,10 @@ export const createAccount = async (req: Request, res: Response) => {
       isActive: finalIsActive,
       order: orderNum,
     };
+
+    if (finalDailyPostTarget !== undefined) {
+      newAccount.dailyPostTarget = finalDailyPostTarget;
+    }
 
     const result = await accountService.createAccount(newAccount);
     const createdAccount = await accountService.getAccountById(result.insertedId.toString());
@@ -131,7 +144,7 @@ export const updateAccount = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Account not found.' });
     }
 
-    let { slug, displayName, driveFolderName, platform, isActive, order } = req.body;
+    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget } = req.body;
     const updates: any = {};
 
     if (slug !== undefined) {
@@ -194,6 +207,14 @@ export const updateAccount = async (req: Request, res: Response) => {
         return res.status(400).json({ message: 'order must be a positive integer' });
       }
       updates.order = orderNum;
+    }
+
+    if (dailyPostTarget !== undefined) {
+      const targetNum = Number(dailyPostTarget);
+      if (!Number.isInteger(targetNum) || targetNum < 1) {
+        return res.status(400).json({ message: 'dailyPostTarget must be a positive integer greater than or equal to 1' });
+      }
+      updates.dailyPostTarget = targetNum;
     }
 
     await accountService.updateAccount(id, updates);
