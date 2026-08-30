@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prepareSync, getSyncStatus, internalFinalizeSync, internalFailSync, getSyncHistory, retryFailedSync } from './sync.controller';
+import { prepareSync, getSyncStatus, internalFinalizeSync, internalFailSync, getSyncHistory, retryFailedSync, internalPrepareSync } from './sync.controller';
 import { verifyFirebaseToken } from '../../middleware/auth.middleware';
 import { verifyInternalApiKey } from '../../middleware/internalAuth.middleware';
 
@@ -15,5 +15,6 @@ export default router;
 
 export const internalSyncRouter = Router();
 
+internalSyncRouter.post('/prepare', verifyInternalApiKey, internalPrepareSync);
 internalSyncRouter.post('/:syncId/finalize', verifyInternalApiKey, internalFinalizeSync);
 internalSyncRouter.post('/:syncId/fail', verifyInternalApiKey, internalFailSync);

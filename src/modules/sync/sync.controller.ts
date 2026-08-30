@@ -10,29 +10,7 @@ import { getPlatformSettings } from '../platformSettings/platformSettings.servic
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
-export const prepareSync = catchAsync(async (req: Request, res: Response) => {
-  const { targetDate } = req.body;
-
-  if (!targetDate || typeof targetDate !== 'string') {
-    return res.status(400).json({ message: 'targetDate is required and must be a string' });
-  }
-
-  const day = validateAndDeriveDay(targetDate);
-  if (!day) {
-    return res.status(400).json({ message: 'Invalid targetDate format or impossible date' });
-  }
-
-  const uid = req.user?.uid;
-  if (!uid) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
-  const user = await findUserByFirebaseUid(uid);
-  if (!user || user.status !== 'approved' || (user.role !== 'admin' && user.role !== 'creator')) {
-    return res.status(403).json({ message: 'Forbidden' });
-  }
-
-  const triggeredBy = user.email || uid;
+const handleSyncTrigger = async (targetDate: string, triggeredBy: string, res: Response) => {
   const syncId = await createSyncRun(targetDate, triggeredBy);
   const settings = await getPlatformSettings();
 
@@ -58,6 +36,33 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
     status: 'running',
     message: 'Sync started'
   });
+};
+
+export const prepareSync = catchAsync(async (req: Request, res: Response) => {
+  const { targetDate } = req.body;
+
+  if (!targetDate || typeof targetDate !== 'string') {
+    return res.status(400).json({ message: 'targetDate is required and must be a string' });
+  }
+
+  const day = validateAndDeriveDay(targetDate);
+  if (!day) {
+    return res.status(400).json({ message: 'Invalid targetDate format or impossible date' });
+  }
+
+  const uid = req.user?.uid;
+  if (!uid) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const user = await findUserByFirebaseUid(uid);
+  if (!user || user.status !== 'approved' || (user.role !== 'admin' && user.role !== 'creator')) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  const triggeredBy = user.email || uid;
+  
+  return handleSyncTrigger(targetDate, triggeredBy, res);
 });
 
 export const retryFailedSync = catchAsync(async (req: Request, res: Response) => {
@@ -361,4 +366,19 @@ export const internalFailSync = catchAsync(async (req: Request, res: Response) =
   }
 
   return res.status(200).json({ message: 'Sync marked as failed' });
+});
+
+export const internalPrepareSync = catchAsync(async (req: Request, res: Response) => {
+  const { targetDate } = req.body;
+
+  if (!targetDate || typeof targetDate !== 'string') {
+    return res.status(400).json({ message: 'targetDate is required and must be a string' });
+  }
+
+  const day = validateAndDeriveDay(targetDate);
+  if (!day) {
+    return res.status(400).json({ message: 'Invalid targetDate format or impossible date' });
+  }
+
+  return handleSyncTrigger(targetDate, 'system-auto-sync', res);
 });
