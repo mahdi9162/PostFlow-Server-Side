@@ -41,6 +41,9 @@ export interface PlatformSettings {
     caption: AiTaskConfig;
   };
   driveAutomation?: DriveAutomationConfig;
+  autoSync?: {
+    enabled: boolean;
+  };
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -78,4 +81,7 @@ export const DEFAULT_PLATFORM_SETTINGS: Omit<PlatformSettings, 'createdAt' | 'up
     deleteFoldersOlderThanDays: 7,
     cleanupTime: "03:00"
   },
+  autoSync: {
+    enabled: false
+  }
 };

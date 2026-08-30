@@ -58,7 +58,7 @@ export const getInternalSettings = catchAsync(async (req: Request, res: Response
 export const updateSettings = catchAsync(async (req: Request, res: Response) => {
   if (!(await requireAdminAccess(req, res))) return;
 
-  const { retention, sync, ai, driveAutomation } = req.body;
+  const { retention, sync, ai, driveAutomation, autoSync } = req.body;
   if (retention !== undefined && (typeof retention !== 'object' || Array.isArray(retention))) {
     return res.status(400).json({ message: 'Invalid payload: retention must be an object' });
   }
@@ -71,6 +71,9 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
   if (driveAutomation !== undefined && (typeof driveAutomation !== 'object' || Array.isArray(driveAutomation))) {
     return res.status(400).json({ message: 'Invalid payload: driveAutomation must be an object' });
   }
+  if (autoSync !== undefined && (typeof autoSync !== 'object' || Array.isArray(autoSync))) {
+    return res.status(400).json({ message: 'Invalid payload: autoSync must be an object' });
+  }
 
   const updates: { 
     retention?: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy };
@@ -80,6 +83,7 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
       caption?: any;
     };
     driveAutomation?: Partial<DriveAutomationConfig>;
+    autoSync?: { enabled?: boolean };
   } = {};
 
   if (retention) {
@@ -263,6 +267,17 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
     }
 
     updates.driveAutomation = safeDriveAutomation;
+  }
+
+  if (autoSync) {
+    const safeAutoSync: { enabled?: boolean } = {};
+    if (autoSync.enabled !== undefined) {
+      if (typeof autoSync.enabled !== 'boolean') {
+        return res.status(400).json({ message: 'autoSync.enabled must be a boolean' });
+      }
+      safeAutoSync.enabled = autoSync.enabled;
+    }
+    updates.autoSync = safeAutoSync;
   }
 
   const updatedSettings = await updatePlatformSettings(updates);

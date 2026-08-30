@@ -389,6 +389,16 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
     return res.status(400).json({ message: 'Invalid targetDate format or impossible date' });
   }
 
+  const settings = await getPlatformSettings();
+  if (settings.autoSync?.enabled !== true) {
+    return res.status(200).json({
+      success: true,
+      status: 'disabled',
+      targetDate,
+      message: 'Auto sync is disabled'
+    });
+  }
+
   const activeAccounts = await findActiveInstagramAccounts();
   let allFulfilled = true;
   const accountStats: Record<string, { target: number | string, prepared: number }> = {};
