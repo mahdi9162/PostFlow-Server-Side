@@ -7,12 +7,12 @@ import { validateAndDeriveDay } from '../post/post.helper';
 import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 import { findActiveInstagramAccounts } from '../account/account.service';
-import { countPreparedPosts } from '../post/post.service';
+import { countPreparedPosts, getPreparedDriveFileIds } from '../post/post.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
-const handleSyncTrigger = async (targetDate: string, triggeredBy: string, res: Response) => {
+const handleSyncTrigger = async (targetDate: string, triggeredBy: string, res: Response, syncPlan?: any) => {
   const syncId = await createSyncRun(targetDate, triggeredBy);
   const settings = await getPlatformSettings();
 
@@ -22,6 +22,7 @@ const handleSyncTrigger = async (targetDate: string, triggeredBy: string, res: R
     requestId: crypto.randomUUID(),
     syncId: syncId.toString(),
     aiConfig: settings.ai,
+    ...(syncPlan ? { syncPlan } : {})
   };
 
   try {
@@ -391,14 +392,23 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
   const activeAccounts = await findActiveInstagramAccounts();
   let allFulfilled = true;
   const accountStats: Record<string, { target: number | string, prepared: number }> = {};
+  const syncPlan: Record<string, any> = {};
 
   for (const account of activeAccounts) {
     const target = typeof account.dailyPostTarget === 'number' ? account.dailyPostTarget : Infinity;
-    const prepared = await countPreparedPosts(account.slug, targetDate);
+    const preparedDriveFileIds = await getPreparedDriveFileIds(account.slug, targetDate);
+    const prepared = preparedDriveFileIds.length;
 
     accountStats[account.slug] = {
       target: target === Infinity ? 'Infinity' : target,
       prepared
+    };
+
+    syncPlan[account.slug] = {
+      target: target === Infinity ? null : target,
+      prepared,
+      remaining: target === Infinity ? null : Math.max(target - prepared, 0),
+      preparedDriveFileIds
     };
 
     if (prepared < target) {
@@ -426,5 +436,5 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
     });
   }
 
-  return handleSyncTrigger(targetDate, 'system-auto-sync', res);
+  return handleSyncTrigger(targetDate, 'system-auto-sync', res, syncPlan);
 });

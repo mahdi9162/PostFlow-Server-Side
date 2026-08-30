@@ -10,6 +10,12 @@ interface SyncRequestPayload {
   syncId: string;
   aiConfig: any; // Using any or importing AiTaskConfig from platformSettings.types.ts
   retryItems?: any[];
+  syncPlan?: Record<string, {
+    target: number | null;
+    prepared: number;
+    remaining: number | null;
+    preparedDriveFileIds: string[];
+  }>;
 }
 
 export const createSyncRun = async (targetDate: string, triggeredBy: string, retryOf?: string): Promise<ObjectId> => {

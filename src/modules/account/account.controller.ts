@@ -268,7 +268,8 @@ export const getInternalAccounts = async (req: Request, res: Response) => {
     const mappedAccounts = activeAccounts.map(acc => ({
       slug: acc.slug,
       displayName: acc.displayName,
-      driveFolderName: acc.driveFolderName
+      driveFolderName: acc.driveFolderName,
+      dailyPostTarget: acc.dailyPostTarget
     }));
 
     res.status(200).json({ accounts: mappedAccounts });

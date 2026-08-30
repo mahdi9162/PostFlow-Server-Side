@@ -31,6 +31,16 @@ export const countPreparedPosts = async (account: string, scheduledDate: string)
   return await getCollection().countDocuments({ account, scheduledDate });
 };
 
+export const getPreparedDriveFileIds = async (account: string, scheduledDate: string): Promise<string[]> => {
+  const posts = await getCollection()
+    .find({ account, scheduledDate }, { projection: { 'media.driveFileId': 1 } })
+    .toArray();
+  
+  return posts
+    .map(p => p.media?.driveFileId)
+    .filter((id): id is string => !!id);
+};
+
 export const deletePost = async (id: string) => {
   return await getCollection().deleteOne({ _id: new ObjectId(id) });
 };
