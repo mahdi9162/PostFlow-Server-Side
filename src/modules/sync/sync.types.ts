@@ -6,6 +6,17 @@ export interface AccountSyncSummary {
   duplicates: number;
   qualitySkipped: number;
   failed: number;
+
+  target?: number | null;
+  preparedBefore?: number;
+  remainingNeeded?: number | null;
+  driveFound?: number;
+  knownPreparedStillInDrive?: number;
+  newAvailable?: number;
+  selected?: number;
+  extra?: number;
+  shortage?: number;
+  warning?: 'EXTRA_MEDIA' | 'NOT_ENOUGH_MEDIA' | null;
 }
 
 export interface RetryItem {
