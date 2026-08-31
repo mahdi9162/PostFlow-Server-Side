@@ -66,6 +66,10 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
     driveAutomation: {
       ...DEFAULT_PLATFORM_SETTINGS.driveAutomation!,
       ...(settings.driveAutomation || {})
+    },
+    autoSync: {
+      ...DEFAULT_PLATFORM_SETTINGS.autoSync!,
+      ...(settings.autoSync || {})
     }
   };
 
@@ -95,6 +99,9 @@ export const updatePlatformSettings = async (
       };
     };
     driveAutomation?: Partial<DriveAutomationConfig>;
+    autoSync?: {
+      enabled?: boolean;
+    };
   }
 ): Promise<PlatformSettings> => {
   const db = getDB();
@@ -151,6 +158,11 @@ export const updatePlatformSettings = async (
     ...(updates.driveAutomation || {})
   } as DriveAutomationConfig;
 
+  const newAutoSync = {
+    ...(existing.autoSync || DEFAULT_PLATFORM_SETTINGS.autoSync!),
+    ...(updates.autoSync || {})
+  };
+
   const result = await db.collection<PlatformSettings>('platformSettings').findOneAndUpdate(
     { _id: GLOBAL_SETTINGS_ID },
     {
@@ -159,6 +171,7 @@ export const updatePlatformSettings = async (
         sync: newSync,
         ai: newAi,
         driveAutomation: newDriveAutomation,
+        autoSync: newAutoSync,
         updatedAt: now,
       },
       $setOnInsert: {
