@@ -50,7 +50,7 @@ export const initializeDatabase = async (): Promise<Db> => {
     try {
       db = client.db('postFlow-db');
       
-      // Initialize collections and indexes safely
+      // Posts Indexes
       await db.collection('posts').createIndex(
         { account: 1, scheduledDate: 1, 'media.fingerprint': 1 },
         { 
@@ -62,6 +62,10 @@ export const initializeDatabase = async (): Promise<Db> => {
           } 
         }
       );
+      await db.collection('posts').createIndex({ account: 1, scheduledDate: 1, createdAt: -1 });
+
+      // Users Indexes
+      await db.collection('users').createIndex({ firebaseUid: 1 }, { unique: true });
 
       // Accounts Indexes
       await db.collection('accounts').createIndex({ slug: 1 }, { unique: true });
@@ -71,6 +75,10 @@ export const initializeDatabase = async (): Promise<Db> => {
       await db.collection('syncRuns').createIndex({ createdAt: 1 });
       await db.collection('syncRuns').createIndex({ status: 1 });
       await db.collection('syncRuns').createIndex({ targetDate: 1 });
+      await db.collection('syncRuns').createIndex({ targetDate: 1, status: 1, triggeredBy: 1 });
+
+      // DriveAutomationRuns Indexes
+      await db.collection('driveAutomationRuns').createIndex({ createdAt: -1 });
 
       // Idempotent Seed
       const accountsCollection = db.collection('accounts');
