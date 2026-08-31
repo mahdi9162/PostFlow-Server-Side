@@ -2,6 +2,26 @@ import { ObjectId } from 'mongodb';
 import { env } from '../../config/env';
 import { getDB } from '../../config/db';
 import { SyncRun, SyncRunResult } from './sync.types';
+import { findActiveInstagramAccounts } from '../account/account.service';
+import { getPreparedDriveFileIds } from '../post/post.service';
+
+export interface AccountSyncPlan {
+  target: number | null;
+  prepared: number;
+  remaining: number | null;
+  preparedDriveFileIds: string[];
+}
+
+export interface AccountSyncStat {
+  target: number | string;
+  prepared: number;
+}
+
+export interface SyncPlanResult {
+  syncPlan: Record<string, AccountSyncPlan>;
+  allFulfilled: boolean;
+  accountStats: Record<string, AccountSyncStat>;
+}
 
 interface SyncRequestPayload {
   targetDate: string;
@@ -10,13 +30,43 @@ interface SyncRequestPayload {
   syncId: string;
   aiConfig: any; // Using any or importing AiTaskConfig from platformSettings.types.ts
   retryItems?: any[];
-  syncPlan?: Record<string, {
-    target: number | null;
-    prepared: number;
-    remaining: number | null;
-    preparedDriveFileIds: string[];
-  }>;
+  syncPlan?: Record<string, AccountSyncPlan>;
 }
+
+export const buildSyncPlan = async (targetDate: string): Promise<SyncPlanResult> => {
+  const activeAccounts = await findActiveInstagramAccounts();
+  let allFulfilled = true;
+  const accountStats: Record<string, AccountSyncStat> = {};
+  const syncPlan: Record<string, AccountSyncPlan> = {};
+
+  for (const account of activeAccounts) {
+    const target = typeof account.dailyPostTarget === 'number' ? account.dailyPostTarget : Infinity;
+    const preparedDriveFileIds = await getPreparedDriveFileIds(account.slug, targetDate);
+    const prepared = preparedDriveFileIds.length;
+
+    accountStats[account.slug] = {
+      target: target === Infinity ? 'Infinity' : target,
+      prepared
+    };
+
+    syncPlan[account.slug] = {
+      target: target === Infinity ? null : target,
+      prepared,
+      remaining: target === Infinity ? null : Math.max(target - prepared, 0),
+      preparedDriveFileIds
+    };
+
+    if (prepared < target) {
+      allFulfilled = false;
+    }
+  }
+
+  return {
+    syncPlan,
+    allFulfilled,
+    accountStats
+  };
+};
 
 export const createSyncRun = async (targetDate: string, triggeredBy: string, retryOf?: string): Promise<ObjectId> => {
   const db = getDB();

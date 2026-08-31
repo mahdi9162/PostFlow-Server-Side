@@ -4,10 +4,8 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
-import { findActiveInstagramAccounts } from '../account/account.service';
-import { countPreparedPosts, getPreparedDriveFileIds } from '../post/post.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -65,7 +63,9 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
 
   const triggeredBy = user.email || uid;
   
-  return handleSyncTrigger(targetDate, triggeredBy, res);
+  const { syncPlan } = await buildSyncPlan(targetDate);
+
+  return handleSyncTrigger(targetDate, triggeredBy, res, syncPlan);
 });
 
 export const retryFailedSync = catchAsync(async (req: Request, res: Response) => {
@@ -399,34 +399,9 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
     });
   }
 
-  const activeAccounts = await findActiveInstagramAccounts();
-  let allFulfilled = true;
-  const accountStats: Record<string, { target: number | string, prepared: number }> = {};
-  const syncPlan: Record<string, any> = {};
+  const { syncPlan, allFulfilled, accountStats } = await buildSyncPlan(targetDate);
 
-  for (const account of activeAccounts) {
-    const target = typeof account.dailyPostTarget === 'number' ? account.dailyPostTarget : Infinity;
-    const preparedDriveFileIds = await getPreparedDriveFileIds(account.slug, targetDate);
-    const prepared = preparedDriveFileIds.length;
-
-    accountStats[account.slug] = {
-      target: target === Infinity ? 'Infinity' : target,
-      prepared
-    };
-
-    syncPlan[account.slug] = {
-      target: target === Infinity ? null : target,
-      prepared,
-      remaining: target === Infinity ? null : Math.max(target - prepared, 0),
-      preparedDriveFileIds
-    };
-
-    if (prepared < target) {
-      allFulfilled = false;
-    }
-  }
-
-  if (activeAccounts.length === 0) {
+  if (Object.keys(syncPlan).length === 0) {
     return res.status(200).json({
       success: true,
       status: 'no_work',
