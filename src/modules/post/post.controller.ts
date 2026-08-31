@@ -531,29 +531,41 @@ const streamPostMedia = async (
       return res.status(400).json({ message: 'This post does not have downloadable Drive media.' });
     }
 
-    let driveMetadata: any;
-    try {
-      const metaRes = await driveClient.files.get({
-        fileId: driveFileId,
-        fields: 'id, name, mimeType, size',
-      });
-      driveMetadata = metaRes.data;
-    } catch (error: any) {
-      console.error("Drive API Error:", {
-        message: error?.message,
-        code: error?.code,
-        status: error?.status,
-        name: error?.name,
-        stack: error?.stack,
-      });
-      const status = error.code || error.status || 500;
-      if (status === 404) {
-        return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
+    let rawFileName = post.media?.fileName;
+    let contentType = post.media?.mimeType;
+    let contentSize: string | number | null | undefined;
+
+    // If metadata is missing on the post document, fallback to querying Drive metadata
+    if (!rawFileName || !contentType) {
+      try {
+        const metaRes = await driveClient.files.get({
+          fileId: driveFileId,
+          fields: 'id, name, mimeType, size',
+        });
+        const driveMetadata = metaRes.data;
+        rawFileName = rawFileName || driveMetadata.name || `post-media-${id}`;
+        contentType = contentType || driveMetadata.mimeType || 'application/octet-stream';
+        contentSize = driveMetadata.size;
+      } catch (error: any) {
+        console.error("Drive API Error:", {
+          message: error?.message,
+          code: error?.code,
+          status: error?.status,
+          name: error?.name,
+          stack: error?.stack,
+        });
+        const status = error.code || error.status || 500;
+        if (status === 404) {
+          return res.status(404).json({ message: 'Media file is no longer available in Google Drive.' });
+        }
+        if (status === 403) {
+          return res.status(403).json({ message: 'You do not have access to this media.' });
+        }
+        return res.status(500).json({ message: 'Failed to download media.' });
       }
-      if (status === 403) {
-        return res.status(403).json({ message: 'You do not have access to this media.' });
-      }
-      return res.status(500).json({ message: 'Failed to download media.' });
+    } else {
+      rawFileName = rawFileName || `post-media-${id}`;
+      contentType = contentType || 'application/octet-stream';
     }
 
     let streamRes: any;
@@ -585,17 +597,15 @@ const streamPostMedia = async (
       return res.status(500).json({ message: 'Failed to download media.' });
     }
 
-    const rawFileName = post.media?.fileName || driveMetadata.name || `post-media-${id}`;
     const safeFileName = rawFileName.replace(/[/\\?%*:|"<>]/g, '_').replace(/[\r\n]/g, '');
-    const contentType = driveMetadata.mimeType || post.media?.mimeType || 'application/octet-stream';
 
     res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
       `${options.disposition}; filename="${safeFileName.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodeURIComponent(safeFileName)}`
     );
-    if (driveMetadata.size) {
-      res.setHeader('Content-Length', driveMetadata.size);
+    if (contentSize) {
+      res.setHeader('Content-Length', contentSize);
     }
     if (options.cacheControl) {
       res.setHeader('Cache-Control', options.cacheControl);

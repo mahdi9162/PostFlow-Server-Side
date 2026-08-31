@@ -66,6 +66,7 @@ export const initializeDatabase = async (): Promise<Db> => {
 
       // Users Indexes
       await db.collection('users').createIndex({ firebaseUid: 1 }, { unique: true });
+      await db.collection('users').createIndex({ status: 1, createdAt: -1 });
 
       // Accounts Indexes
       await db.collection('accounts').createIndex({ slug: 1 }, { unique: true });
@@ -76,9 +77,15 @@ export const initializeDatabase = async (): Promise<Db> => {
       await db.collection('syncRuns').createIndex({ status: 1 });
       await db.collection('syncRuns').createIndex({ targetDate: 1 });
       await db.collection('syncRuns').createIndex({ targetDate: 1, status: 1, triggeredBy: 1 });
+      await db.collection('syncRuns').createIndex({ retryOf: 1, createdAt: -1 });
 
       // DriveAutomationRuns Indexes
       await db.collection('driveAutomationRuns').createIndex({ createdAt: -1 });
+      await db.collection('driveAutomationRuns').createIndex({ n8nExecutionId: 1 });
+
+      // Hashtag Collections Indexes
+      await db.collection('hashtagGroups').createIndex({ account: 1, order: 1 });
+      await db.collection('hashtagRotations').createIndex({ account: 1 }, { unique: true });
 
       // Idempotent Seed
       const accountsCollection = db.collection('accounts');
