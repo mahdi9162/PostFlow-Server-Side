@@ -88,6 +88,15 @@ export const getSyncRunById = async (syncId: string): Promise<SyncRun | null> =>
   return db.collection<SyncRun>('syncRuns').findOne({ _id: new ObjectId(syncId) });
 };
 
+export const getRunningAutoSync = async (targetDate: string): Promise<SyncRun | null> => {
+  const db = getDB();
+  return db.collection<SyncRun>('syncRuns').findOne({
+    targetDate,
+    status: 'running',
+    triggeredBy: 'system-auto-sync'
+  });
+};
+
 export const getChildRetrySyncRun = async (syncId: string): Promise<SyncRun | null> => {
   const db = getDB();
   return db.collection<SyncRun>('syncRuns').findOne(

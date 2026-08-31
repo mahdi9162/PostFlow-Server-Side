@@ -4,7 +4,7 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, getRunningAutoSync, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
@@ -396,6 +396,17 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
       status: 'disabled',
       targetDate,
       message: 'Auto sync is disabled'
+    });
+  }
+
+  const existingRun = await getRunningAutoSync(targetDate);
+  if (existingRun) {
+    return res.status(200).json({
+      success: true,
+      status: 'already_running',
+      targetDate,
+      syncId: existingRun._id!.toString(),
+      message: 'An auto sync is already running for this target date'
     });
   }
 
