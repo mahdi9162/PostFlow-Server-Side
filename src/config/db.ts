@@ -78,6 +78,16 @@ export const initializeDatabase = async (): Promise<Db> => {
       await db.collection('syncRuns').createIndex({ targetDate: 1 });
       await db.collection('syncRuns').createIndex({ targetDate: 1, status: 1, triggeredBy: 1 });
       await db.collection('syncRuns').createIndex({ retryOf: 1, createdAt: -1 });
+      await db.collection('syncRuns').createIndex(
+        { lockKey: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            status: 'running',
+            lockKey: 'global-sync',
+          },
+        }
+      );
 
       // DriveAutomationRuns Indexes
       await db.collection('driveAutomationRuns').createIndex({ createdAt: -1 });

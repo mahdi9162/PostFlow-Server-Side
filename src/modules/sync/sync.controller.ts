@@ -4,14 +4,45 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, getRunningAutoSync, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
+import { triggerSync, createSyncRun, getSyncRunById, getRunningSync, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
-const handleSyncTrigger = async (targetDate: string, triggeredBy: string, res: Response, syncPlan?: any) => {
-  const syncId = await createSyncRun(targetDate, triggeredBy);
+const handleSyncTrigger = async (
+  targetDate: string,
+  triggeredBy: string,
+  res: Response,
+  syncPlan?: any,
+  isAutoSync = false
+) => {
+  let syncId: ObjectId;
+  try {
+    syncId = await createSyncRun(targetDate, triggeredBy);
+  } catch (error: any) {
+    if (error?.code === 11000) {
+      const activeSync = await getRunningSync();
+      if (isAutoSync) {
+        return res.status(200).json({
+          success: true,
+          status: 'already_running',
+          activeSyncId: activeSync?._id?.toString(),
+          activeTargetDate: activeSync?.targetDate,
+          message: 'Another sync is already running'
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        status: 'already_running',
+        activeSyncId: activeSync?._id?.toString(),
+        activeTargetDate: activeSync?.targetDate,
+        message: 'Another sync is already running'
+      });
+    }
+    throw error;
+  }
+
   const settings = await getPlatformSettings();
 
   const payload = {
@@ -61,11 +92,22 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
     return res.status(403).json({ message: 'Forbidden' });
   }
 
+  const runningSync = await getRunningSync();
+  if (runningSync) {
+    return res.status(409).json({
+      success: false,
+      status: 'already_running',
+      activeSyncId: runningSync._id?.toString(),
+      activeTargetDate: runningSync.targetDate,
+      message: 'Another sync is already running'
+    });
+  }
+
   const triggeredBy = user.email || uid;
   
   const { syncPlan } = await buildSyncPlan(targetDate);
 
-  return handleSyncTrigger(targetDate, triggeredBy, res, syncPlan);
+  return handleSyncTrigger(targetDate, triggeredBy, res, syncPlan, false);
 });
 
 export const retryFailedSync = catchAsync(async (req: Request, res: Response) => {
@@ -102,8 +144,34 @@ export const retryFailedSync = catchAsync(async (req: Request, res: Response) =>
     });
   }
 
+  const runningSync = await getRunningSync();
+  if (runningSync) {
+    return res.status(409).json({
+      success: false,
+      status: 'already_running',
+      activeSyncId: runningSync._id?.toString(),
+      activeTargetDate: runningSync.targetDate,
+      message: 'Another sync is already running'
+    });
+  }
+
   const triggeredBy = user.email || uid;
-  const newSyncId = await createSyncRun(originalSyncRun.targetDate, triggeredBy, syncId);
+  let newSyncId: ObjectId;
+  try {
+    newSyncId = await createSyncRun(originalSyncRun.targetDate, triggeredBy, syncId);
+  } catch (error: any) {
+    if (error?.code === 11000) {
+      const activeSync = await getRunningSync();
+      return res.status(409).json({
+        success: false,
+        status: 'already_running',
+        activeSyncId: activeSync?._id?.toString(),
+        activeTargetDate: activeSync?.targetDate,
+        message: 'Another sync is already running'
+      });
+    }
+    throw error;
+  }
   const settings = await getPlatformSettings();
 
   const retryItems = originalSyncRun.result.failedItems.map((item) => ({
@@ -399,14 +467,14 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
     });
   }
 
-  const existingRun = await getRunningAutoSync(targetDate);
+  const existingRun = await getRunningSync();
   if (existingRun) {
     return res.status(200).json({
       success: true,
       status: 'already_running',
-      targetDate,
-      syncId: existingRun._id!.toString(),
-      message: 'An auto sync is already running for this target date'
+      activeSyncId: existingRun._id!.toString(),
+      activeTargetDate: existingRun.targetDate,
+      message: 'Another sync is already running'
     });
   }
 
@@ -432,5 +500,5 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
     });
   }
 
-  return handleSyncTrigger(targetDate, 'system-auto-sync', res, syncPlan);
+  return handleSyncTrigger(targetDate, 'system-auto-sync', res, syncPlan, true);
 });

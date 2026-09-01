@@ -73,6 +73,7 @@ export const createSyncRun = async (targetDate: string, triggeredBy: string, ret
   const newSyncRun: SyncRun = {
     targetDate,
     status: 'running',
+    lockKey: 'global-sync',
     triggeredBy,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -88,12 +89,10 @@ export const getSyncRunById = async (syncId: string): Promise<SyncRun | null> =>
   return db.collection<SyncRun>('syncRuns').findOne({ _id: new ObjectId(syncId) });
 };
 
-export const getRunningAutoSync = async (targetDate: string): Promise<SyncRun | null> => {
+export const getRunningSync = async (): Promise<SyncRun | null> => {
   const db = getDB();
   return db.collection<SyncRun>('syncRuns').findOne({
-    targetDate,
-    status: 'running',
-    triggeredBy: 'system-auto-sync'
+    status: 'running'
   });
 };
 

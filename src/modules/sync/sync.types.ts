@@ -75,6 +75,7 @@ export interface SyncRun {
   _id?: ObjectId;
   targetDate: string;
   status: 'running' | 'completed' | 'partial_success' | 'failed' | 'incomplete';
+  lockKey?: 'global-sync';
   triggeredBy: string;
   result?: SyncRunResult;
   errorMessage?: string;
