@@ -152,6 +152,11 @@ export const initializeDatabase = async (): Promise<Db> => {
         }
       );
 
+      // SeedAccounts Indexes (C1 Manual Seed Management)
+      await db.collection('seedAccounts').createIndex({ username: 1 }, { unique: true });
+      await db.collection('seedAccounts').createIndex({ status: 1, enabled: 1 });
+      await db.collection('seedAccounts').createIndex({ createdAt: -1 });
+
       // Idempotent Seed
       const accountsCollection = db.collection('accounts');
       for (const acc of initialAccounts) {
