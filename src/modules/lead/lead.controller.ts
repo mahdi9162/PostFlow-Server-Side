@@ -176,3 +176,16 @@ export const internalAssignLeads = catchAsync(async (req: Request, res: Response
 
   return res.status(201).json(result);
 });
+
+export const getDailyDemand = catchAsync(async (req: Request, res: Response) => {
+  const dateQuery = req.query.date as string | undefined;
+
+  if (dateQuery !== undefined) {
+    if (!DATE_REGEX.test(dateQuery.trim())) {
+      return res.status(400).json({ message: 'query param date must be in YYYY-MM-DD format if provided' });
+    }
+  }
+
+  const demandSummary = await leadService.getDailyDemandSummary(dateQuery?.trim());
+  return res.status(200).json(demandSummary);
+});

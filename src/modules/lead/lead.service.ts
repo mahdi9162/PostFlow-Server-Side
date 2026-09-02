@@ -6,6 +6,8 @@ import {
   LeadAssignment,
   LeadQuotaSummary,
   AssignCandidateInput,
+  AccountDemandItem,
+  DailyDemandSummary,
 } from './lead.types';
 import {
   calculateGenerationTarget,
@@ -13,6 +15,7 @@ import {
   calculateQuotaNeeds,
   computeLeadSlot,
 } from './lead.helper';
+import { getCurrentDateInTimezone } from '../../utils/timezone.helper';
 
 const getCollection = () => getDB().collection<LeadAssignment>('leadAssignments');
 
@@ -274,4 +277,58 @@ export const getAllLeadAssignmentsForDate = async (
     })
     .sort({ isReserve: 1, batchIndex: 1, createdAt: 1 })
     .toArray();
+};
+
+/**
+ * Calculate the daily lead generation demand across all active & eligible target accounts.
+ * If targetDate is not supplied, resolves the business date using platformSettings.leadFinder.timezone.
+ */
+export const getDailyDemandSummary = async (
+  targetDate?: string
+): Promise<DailyDemandSummary> => {
+  const platformSettings = await getPlatformSettings();
+  const timezone = platformSettings.leadFinder?.timezone?.trim() || 'Asia/Dhaka';
+
+  const resolvedDate = targetDate && targetDate.trim()
+    ? targetDate.trim()
+    : getCurrentDateInTimezone(timezone);
+
+  const db = getDB();
+  const accountsCollection = db.collection<Account>('accounts');
+
+  // Find all eligible target accounts where isActive is true and leadFinder.enabled is true
+  const eligibleAccounts = await accountsCollection
+    .find({
+      platform: 'instagram',
+      isActive: true,
+      'leadFinder.enabled': true,
+    })
+    .sort({ order: 1, createdAt: 1 })
+    .toArray();
+
+  const accountDemandItems: AccountDemandItem[] = [];
+
+  for (const account of eligibleAccounts) {
+    const quota = await getDailyLeadQuotaSummary(account._id!.toString(), resolvedDate);
+
+    accountDemandItems.push({
+      targetAccountId: quota.targetAccountId,
+      accountSlug: quota.accountSlug,
+      displayName: account.displayName,
+      targetDate: resolvedDate,
+      dailyLeadTarget: quota.visibleTarget,
+      alreadyAssignedQualified: quota.assignedNormalCount,
+      remainingRequired: quota.remainingNormalNeed,
+      bufferPercent: quota.bufferPercent,
+      generationTarget: quota.generationTarget,
+      remainingGenerationNeed: quota.remainingGenerationNeed,
+      shouldScrape: quota.remainingGenerationNeed > 0,
+    });
+  }
+
+  return {
+    targetDate: resolvedDate,
+    timezone,
+    accounts: accountDemandItems,
+  };
 };

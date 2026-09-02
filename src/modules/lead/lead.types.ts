@@ -48,3 +48,23 @@ export interface AssignCandidateInput {
   source?: LeadSource;
   metadata?: Record<string, any>;
 }
+
+export interface AccountDemandItem {
+  targetAccountId: string;
+  accountSlug: string;
+  displayName: string;
+  targetDate: string;
+  dailyLeadTarget: number;
+  alreadyAssignedQualified: number;
+  remainingRequired: number;
+  bufferPercent: number;
+  generationTarget: number;
+  remainingGenerationNeed: number;
+  shouldScrape: boolean;
+}
+
+export interface DailyDemandSummary {
+  targetDate: string;
+  timezone: string;
+  accounts: AccountDemandItem[];
+}

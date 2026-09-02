@@ -26,6 +26,24 @@ export const timeToMinutes = (time: string): number => {
   return hour * 60 + minute;
 };
 
+export const getCurrentDateInTimezone = (
+  timeZone: string,
+  date: Date = new Date()
+): string => {
+  const safeTimezone = isValidIanaTimezone(timeZone) ? (timeZone as string).trim() : 'Asia/Dhaka';
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTimezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((p) => p.type === 'year')?.value || '1970';
+  const month = parts.find((p) => p.type === 'month')?.value || '01';
+  const day = parts.find((p) => p.type === 'day')?.value || '01';
+  return `${year}-${month}-${day}`;
+};
+
 export const getCurrentTimeInTimezone = (
   timeZone: string,
   date: Date = new Date()
