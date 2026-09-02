@@ -24,6 +24,14 @@ export interface DriveAutomationConfig {
   cleanupTime: string;
 }
 
+export interface LeadFinderConfig {
+  leadFinderEnabled: boolean;
+  autoScrapingEnabled: boolean;
+  scrapingStartTime: string;
+  scrapingEndTime: string;
+  timezone: string;
+}
+
 export interface PlatformSettings {
   _id?: string;
   retention: {
@@ -44,6 +52,7 @@ export interface PlatformSettings {
   autoSync?: {
     enabled: boolean;
   };
+  leadFinder?: LeadFinderConfig;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -79,9 +88,16 @@ export const DEFAULT_PLATFORM_SETTINGS: Omit<PlatformSettings, 'createdAt' | 'up
     prepareDaysAhead: 30,
     cleanupEnabled: true,
     deleteFoldersOlderThanDays: 7,
-    cleanupTime: "03:00"
+    cleanupTime: '03:00',
   },
   autoSync: {
-    enabled: false
-  }
+    enabled: false,
+  },
+  leadFinder: {
+    leadFinderEnabled: false,
+    autoScrapingEnabled: false,
+    scrapingStartTime: '01:00',
+    scrapingEndTime: '05:00',
+    timezone: 'Asia/Dhaka',
+  },
 };

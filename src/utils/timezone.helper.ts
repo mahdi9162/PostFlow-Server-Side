@@ -1,0 +1,82 @@
+export interface ScrapingWindowConfig {
+  scrapingStartTime: string;
+  scrapingEndTime: string;
+  timezone: string;
+}
+
+export const isValidIanaTimezone = (tz: unknown): boolean => {
+  if (typeof tz !== 'string' || !tz.trim()) return false;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const isValidTimeFormat = (time: unknown): boolean => {
+  if (typeof time !== 'string') return false;
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(time.trim());
+};
+
+export const timeToMinutes = (time: string): number => {
+  const [hourStr, minuteStr] = time.trim().split(':');
+  const hour = parseInt(hourStr, 10);
+  const minute = parseInt(minuteStr, 10);
+  return hour * 60 + minute;
+};
+
+export const getCurrentTimeInTimezone = (
+  timeZone: string,
+  date: Date = new Date()
+): { hour: number; minute: number; timeString: string; totalMinutes: number } => {
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(date);
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value || '0', 10);
+  const timeString = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  return {
+    hour,
+    minute,
+    timeString,
+    totalMinutes: hour * 60 + minute,
+  };
+};
+
+export const isWithinLeadScrapingWindow = (
+  config: ScrapingWindowConfig,
+  date: Date = new Date()
+): boolean => {
+  const { scrapingStartTime, scrapingEndTime, timezone } = config;
+
+  if (!isValidTimeFormat(scrapingStartTime) || !isValidTimeFormat(scrapingEndTime)) {
+    return false;
+  }
+
+  if (!isValidIanaTimezone(timezone)) {
+    return false;
+  }
+
+  const startMinutes = timeToMinutes(scrapingStartTime);
+  const endMinutes = timeToMinutes(scrapingEndTime);
+
+  // Start and End cannot be equal (rejected as invalid window)
+  if (startMinutes === endMinutes) {
+    return false;
+  }
+
+  const { totalMinutes: nowMinutes } = getCurrentTimeInTimezone(timezone, date);
+
+  if (startMinutes < endMinutes) {
+    // Normal window: e.g. 01:00 (60) to 05:00 (300)
+    return nowMinutes >= startMinutes && nowMinutes < endMinutes;
+  } else {
+    // Cross-midnight window: e.g. 22:00 (1320) to 03:00 (180)
+    return nowMinutes >= startMinutes || nowMinutes < endMinutes;
+  }
+};

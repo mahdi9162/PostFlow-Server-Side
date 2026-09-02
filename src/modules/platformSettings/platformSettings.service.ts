@@ -1,37 +1,43 @@
 import { getDB } from '../../config/db';
-import { PlatformSettings, DEFAULT_PLATFORM_SETTINGS, RetentionPolicy, DriveAutomationConfig } from './platformSettings.types';
+import {
+  PlatformSettings,
+  DEFAULT_PLATFORM_SETTINGS,
+  RetentionPolicy,
+  DriveAutomationConfig,
+  LeadFinderConfig,
+} from './platformSettings.types';
 
 const GLOBAL_SETTINGS_ID = 'global';
 
 export const getPlatformSettings = async (): Promise<PlatformSettings> => {
   const db = getDB();
   const settings = await db.collection<PlatformSettings>('platformSettings').findOne({ _id: GLOBAL_SETTINGS_ID });
-  
+
   if (!settings) {
     return {
       ...DEFAULT_PLATFORM_SETTINGS,
       _id: GLOBAL_SETTINGS_ID,
     } as PlatformSettings;
   }
-  
+
   // Normalize settings with defaults for missing fields
   const normalizedSettings: PlatformSettings = {
     ...settings,
     retention: {
       syncHistory: {
         ...DEFAULT_PLATFORM_SETTINGS.retention.syncHistory,
-        ...(settings.retention?.syncHistory || {})
+        ...(settings.retention?.syncHistory || {}),
       },
       posts: {
         ...DEFAULT_PLATFORM_SETTINGS.retention.posts,
-        ...(settings.retention?.posts || {})
-      }
+        ...(settings.retention?.posts || {}),
+      },
     },
     sync: {
       staleRun: {
         ...DEFAULT_PLATFORM_SETTINGS.sync!.staleRun!,
-        ...(settings.sync?.staleRun || {})
-      }
+        ...(settings.sync?.staleRun || {}),
+      },
     },
     ai: {
       vision: {
@@ -40,13 +46,13 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
         providers: {
           groq: {
             ...DEFAULT_PLATFORM_SETTINGS.ai!.vision.providers.groq,
-            ...(settings.ai?.vision?.providers?.groq || {})
+            ...(settings.ai?.vision?.providers?.groq || {}),
           },
           gemini: {
             ...DEFAULT_PLATFORM_SETTINGS.ai!.vision.providers.gemini,
-            ...(settings.ai?.vision?.providers?.gemini || {})
-          }
-        }
+            ...(settings.ai?.vision?.providers?.gemini || {}),
+          },
+        },
       },
       caption: {
         ...DEFAULT_PLATFORM_SETTINGS.ai!.caption,
@@ -54,30 +60,34 @@ export const getPlatformSettings = async (): Promise<PlatformSettings> => {
         providers: {
           groq: {
             ...DEFAULT_PLATFORM_SETTINGS.ai!.caption.providers.groq,
-            ...(settings.ai?.caption?.providers?.groq || {})
+            ...(settings.ai?.caption?.providers?.groq || {}),
           },
           gemini: {
             ...DEFAULT_PLATFORM_SETTINGS.ai!.caption.providers.gemini,
-            ...(settings.ai?.caption?.providers?.gemini || {})
-          }
-        }
-      }
+            ...(settings.ai?.caption?.providers?.gemini || {}),
+          },
+        },
+      },
     },
     driveAutomation: {
       ...DEFAULT_PLATFORM_SETTINGS.driveAutomation!,
-      ...(settings.driveAutomation || {})
+      ...(settings.driveAutomation || {}),
     },
     autoSync: {
       ...DEFAULT_PLATFORM_SETTINGS.autoSync!,
-      ...(settings.autoSync || {})
-    }
+      ...(settings.autoSync || {}),
+    },
+    leadFinder: {
+      ...DEFAULT_PLATFORM_SETTINGS.leadFinder!,
+      ...(settings.leadFinder || {}),
+    },
   };
 
   return normalizedSettings;
 };
 
 export const updatePlatformSettings = async (
-  updates: { 
+  updates: {
     retention?: { syncHistory?: RetentionPolicy; posts?: RetentionPolicy };
     sync?: { staleRun?: { enabled?: boolean; timeoutMinutes?: number } };
     ai?: {
@@ -102,6 +112,7 @@ export const updatePlatformSettings = async (
     autoSync?: {
       enabled?: boolean;
     };
+    leadFinder?: Partial<LeadFinderConfig>;
   }
 ): Promise<PlatformSettings> => {
   const db = getDB();
@@ -118,8 +129,8 @@ export const updatePlatformSettings = async (
     ...existing.sync,
     staleRun: {
       ...(existing.sync?.staleRun || DEFAULT_PLATFORM_SETTINGS.sync!.staleRun!),
-      ...(updates.sync?.staleRun || {})
-    }
+      ...(updates.sync?.staleRun || {}),
+    },
   };
 
   const newAi = {
@@ -129,13 +140,13 @@ export const updatePlatformSettings = async (
       providers: {
         groq: {
           ...existing.ai!.vision.providers.groq,
-          ...(updates.ai?.vision?.providers?.groq || {})
+          ...(updates.ai?.vision?.providers?.groq || {}),
         },
         gemini: {
           ...existing.ai!.vision.providers.gemini,
-          ...(updates.ai?.vision?.providers?.gemini || {})
-        }
-      }
+          ...(updates.ai?.vision?.providers?.gemini || {}),
+        },
+      },
     },
     caption: {
       ...existing.ai!.caption,
@@ -143,24 +154,29 @@ export const updatePlatformSettings = async (
       providers: {
         groq: {
           ...existing.ai!.caption.providers.groq,
-          ...(updates.ai?.caption?.providers?.groq || {})
+          ...(updates.ai?.caption?.providers?.groq || {}),
         },
         gemini: {
           ...existing.ai!.caption.providers.gemini,
-          ...(updates.ai?.caption?.providers?.gemini || {})
-        }
-      }
-    }
+          ...(updates.ai?.caption?.providers?.gemini || {}),
+        },
+      },
+    },
   };
 
   const newDriveAutomation = {
     ...existing.driveAutomation,
-    ...(updates.driveAutomation || {})
+    ...(updates.driveAutomation || {}),
   } as DriveAutomationConfig;
 
   const newAutoSync = {
     ...(existing.autoSync || DEFAULT_PLATFORM_SETTINGS.autoSync!),
-    ...(updates.autoSync || {})
+    ...(updates.autoSync || {}),
+  };
+
+  const newLeadFinder = {
+    ...(existing.leadFinder || DEFAULT_PLATFORM_SETTINGS.leadFinder!),
+    ...(updates.leadFinder || {}),
   };
 
   const result = await db.collection<PlatformSettings>('platformSettings').findOneAndUpdate(
@@ -172,15 +188,16 @@ export const updatePlatformSettings = async (
         ai: newAi,
         driveAutomation: newDriveAutomation,
         autoSync: newAutoSync,
+        leadFinder: newLeadFinder,
         updatedAt: now,
       },
       $setOnInsert: {
         createdAt: now,
-      }
+      },
     },
     {
       upsert: true,
-      returnDocument: 'after'
+      returnDocument: 'after',
     }
   );
 

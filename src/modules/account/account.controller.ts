@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { ObjectId } from 'mongodb';
 import * as accountService from './account.service';
 import * as userService from '../user/user.service';
+import { DEFAULT_ACCOUNT_LEAD_FINDER, AccountLeadFinderConfig } from './account.types';
 
 const slugRegex = /^[a-z0-9-]+$/;
 const RESERVED_SLUGS = ['dashboard', 'login', 'signup', 'check-email', 'pending-approval', 'forgot-password'];
@@ -32,13 +33,13 @@ export const createAccount = async (req: Request, res: Response) => {
     const isAdmin = await checkAdminRole(uid);
     if (!isAdmin) return res.status(403).json({ message: 'Forbidden: admin only' });
 
-    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget } = req.body;
+    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget, leadFinder } = req.body;
 
     if (!slug || typeof slug !== 'string') {
       return res.status(400).json({ message: 'slug is required and must be a string' });
     }
     slug = slug.trim().toLowerCase();
-    
+
     if (!slugRegex.test(slug)) {
       return res.status(400).json({ message: 'Invalid slug format. Use only lowercase letters, numbers, and hyphens without spaces' });
     }
@@ -50,7 +51,7 @@ export const createAccount = async (req: Request, res: Response) => {
     if (!displayName || typeof displayName !== 'string' || !displayName.trim()) {
       return res.status(400).json({ message: 'displayName is required and cannot be empty' });
     }
-    
+
     if (!driveFolderName || typeof driveFolderName !== 'string' || !driveFolderName.trim()) {
       return res.status(400).json({ message: 'driveFolderName is required and cannot be empty' });
     }
@@ -81,6 +82,38 @@ export const createAccount = async (req: Request, res: Response) => {
       finalDailyPostTarget = targetNum;
     }
 
+    let finalLeadFinder: AccountLeadFinderConfig = { ...DEFAULT_ACCOUNT_LEAD_FINDER };
+    if (leadFinder !== undefined) {
+      if (typeof leadFinder !== 'object' || leadFinder === null || Array.isArray(leadFinder)) {
+        return res.status(400).json({ message: 'leadFinder must be an object' });
+      }
+      const lf = leadFinder;
+      const safeLf: AccountLeadFinderConfig = {
+        enabled: lf.enabled !== undefined ? Boolean(lf.enabled) : DEFAULT_ACCOUNT_LEAD_FINDER.enabled,
+        dailyLeadTarget: lf.dailyLeadTarget !== undefined ? Number(lf.dailyLeadTarget) : DEFAULT_ACCOUNT_LEAD_FINDER.dailyLeadTarget,
+        releaseBatchSize: lf.releaseBatchSize !== undefined ? Number(lf.releaseBatchSize) : DEFAULT_ACCOUNT_LEAD_FINDER.releaseBatchSize,
+        releaseIntervalMinutes: lf.releaseIntervalMinutes !== undefined ? Number(lf.releaseIntervalMinutes) : DEFAULT_ACCOUNT_LEAD_FINDER.releaseIntervalMinutes,
+      };
+
+      if (!Number.isInteger(safeLf.dailyLeadTarget) || safeLf.dailyLeadTarget < 0 || safeLf.dailyLeadTarget > 500) {
+        return res.status(400).json({ message: 'dailyLeadTarget must be an integer between 0 and 500' });
+      }
+
+      if (!Number.isInteger(safeLf.releaseBatchSize) || safeLf.releaseBatchSize < 1 || safeLf.releaseBatchSize > 100) {
+        return res.status(400).json({ message: 'releaseBatchSize must be an integer between 1 and 100' });
+      }
+
+      if (safeLf.dailyLeadTarget > 0 && safeLf.releaseBatchSize > safeLf.dailyLeadTarget) {
+        return res.status(400).json({ message: 'releaseBatchSize cannot exceed dailyLeadTarget when dailyLeadTarget is greater than 0' });
+      }
+
+      if (!Number.isInteger(safeLf.releaseIntervalMinutes) || safeLf.releaseIntervalMinutes < 15 || safeLf.releaseIntervalMinutes > 1440) {
+        return res.status(400).json({ message: 'releaseIntervalMinutes must be an integer between 15 and 1440' });
+      }
+
+      finalLeadFinder = safeLf;
+    }
+
     const existing = await accountService.getAccountBySlug(slug);
     if (existing) {
       return res.status(409).json({ message: 'An account with this slug already exists' });
@@ -93,6 +126,7 @@ export const createAccount = async (req: Request, res: Response) => {
       platform,
       isActive: finalIsActive,
       order: orderNum,
+      leadFinder: finalLeadFinder,
     };
 
     if (finalDailyPostTarget !== undefined) {
@@ -101,7 +135,16 @@ export const createAccount = async (req: Request, res: Response) => {
 
     const result = await accountService.createAccount(newAccount);
     const createdAccount = await accountService.getAccountById(result.insertedId.toString());
-    res.status(201).json(createdAccount);
+    const normalizedCreated = createdAccount
+      ? {
+          ...createdAccount,
+          leadFinder: {
+            ...DEFAULT_ACCOUNT_LEAD_FINDER,
+            ...(createdAccount.leadFinder || {}),
+          },
+        }
+      : createdAccount;
+    res.status(201).json(normalizedCreated);
   } catch (error: any) {
     if (error.code === 11000) {
       return res.status(409).json({ message: 'Duplicate slug' });
@@ -120,7 +163,16 @@ export const getAccounts = async (req: Request, res: Response) => {
 
     const query = role === 'admin' ? {} : { isActive: true };
     const accounts = await accountService.getAccounts(query);
-    res.status(200).json({ accounts });
+
+    const normalizedAccounts = accounts.map((acc) => ({
+      ...acc,
+      leadFinder: {
+        ...DEFAULT_ACCOUNT_LEAD_FINDER,
+        ...(acc.leadFinder || {}),
+      },
+    }));
+
+    res.status(200).json({ accounts: normalizedAccounts });
   } catch (error: any) {
     res.status(500).json({ message: 'Failed to fetch accounts.' });
   }
@@ -144,7 +196,7 @@ export const updateAccount = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'Account not found.' });
     }
 
-    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget } = req.body;
+    let { slug, displayName, driveFolderName, platform, isActive, order, dailyPostTarget, leadFinder } = req.body;
     const updates: any = {};
 
     if (slug !== undefined) {
@@ -217,10 +269,51 @@ export const updateAccount = async (req: Request, res: Response) => {
       updates.dailyPostTarget = targetNum;
     }
 
+    if (leadFinder !== undefined) {
+      if (typeof leadFinder !== 'object' || leadFinder === null || Array.isArray(leadFinder)) {
+        return res.status(400).json({ message: 'leadFinder must be an object' });
+      }
+      const existingLf = existingAccount.leadFinder || DEFAULT_ACCOUNT_LEAD_FINDER;
+      const safeLf: AccountLeadFinderConfig = {
+        enabled: leadFinder.enabled !== undefined ? Boolean(leadFinder.enabled) : existingLf.enabled,
+        dailyLeadTarget: leadFinder.dailyLeadTarget !== undefined ? Number(leadFinder.dailyLeadTarget) : existingLf.dailyLeadTarget,
+        releaseBatchSize: leadFinder.releaseBatchSize !== undefined ? Number(leadFinder.releaseBatchSize) : existingLf.releaseBatchSize,
+        releaseIntervalMinutes: leadFinder.releaseIntervalMinutes !== undefined ? Number(leadFinder.releaseIntervalMinutes) : existingLf.releaseIntervalMinutes,
+      };
+
+      if (!Number.isInteger(safeLf.dailyLeadTarget) || safeLf.dailyLeadTarget < 0 || safeLf.dailyLeadTarget > 500) {
+        return res.status(400).json({ message: 'dailyLeadTarget must be an integer between 0 and 500' });
+      }
+
+      if (!Number.isInteger(safeLf.releaseBatchSize) || safeLf.releaseBatchSize < 1 || safeLf.releaseBatchSize > 100) {
+        return res.status(400).json({ message: 'releaseBatchSize must be an integer between 1 and 100' });
+      }
+
+      if (safeLf.dailyLeadTarget > 0 && safeLf.releaseBatchSize > safeLf.dailyLeadTarget) {
+        return res.status(400).json({ message: 'releaseBatchSize cannot exceed dailyLeadTarget when dailyLeadTarget is greater than 0' });
+      }
+
+      if (!Number.isInteger(safeLf.releaseIntervalMinutes) || safeLf.releaseIntervalMinutes < 15 || safeLf.releaseIntervalMinutes > 1440) {
+        return res.status(400).json({ message: 'releaseIntervalMinutes must be an integer between 15 and 1440' });
+      }
+
+      updates.leadFinder = safeLf;
+    }
+
     await accountService.updateAccount(id, updates);
     const updatedAccount = await accountService.getAccountById(id);
-    
-    res.status(200).json(updatedAccount);
+
+    const normalizedUpdated = updatedAccount
+      ? {
+          ...updatedAccount,
+          leadFinder: {
+            ...DEFAULT_ACCOUNT_LEAD_FINDER,
+            ...(updatedAccount.leadFinder || {}),
+          },
+        }
+      : updatedAccount;
+
+    res.status(200).json(normalizedUpdated);
   } catch (error: any) {
     if (error.code === 11000) {
       return res.status(409).json({ message: 'Slug already exists.' });
@@ -263,13 +356,17 @@ export const deleteAccount = async (req: Request, res: Response) => {
 export const getInternalAccounts = async (req: Request, res: Response) => {
   try {
     const activeAccounts = await accountService.findActiveInstagramAccounts();
-    
-    // Map to required n8n format
-    const mappedAccounts = activeAccounts.map(acc => ({
+
+    // Map to required n8n/worker format with normalized leadFinder
+    const mappedAccounts = activeAccounts.map((acc) => ({
       slug: acc.slug,
       displayName: acc.displayName,
       driveFolderName: acc.driveFolderName,
-      dailyPostTarget: acc.dailyPostTarget
+      dailyPostTarget: acc.dailyPostTarget,
+      leadFinder: {
+        ...DEFAULT_ACCOUNT_LEAD_FINDER,
+        ...(acc.leadFinder || {}),
+      },
     }));
 
     res.status(200).json({ accounts: mappedAccounts });
