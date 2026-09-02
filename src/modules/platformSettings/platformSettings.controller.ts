@@ -352,6 +352,20 @@ export const updateSettings = catchAsync(async (req: Request, res: Response) => 
       safeLeadFinder.timezone = leadFinder.timezone.trim();
     }
 
+    if (leadFinder.leadBufferPercent !== undefined) {
+      if (
+        typeof leadFinder.leadBufferPercent !== 'number' ||
+        !Number.isInteger(leadFinder.leadBufferPercent) ||
+        leadFinder.leadBufferPercent < 0 ||
+        leadFinder.leadBufferPercent > 100
+      ) {
+        return res.status(400).json({
+          message: 'leadFinder.leadBufferPercent must be an integer between 0 and 100',
+        });
+      }
+      safeLeadFinder.leadBufferPercent = leadFinder.leadBufferPercent;
+    }
+
     // Verify Start Time != End Time
     const currentSettings = await getPlatformSettings();
     const effectiveStartTime =

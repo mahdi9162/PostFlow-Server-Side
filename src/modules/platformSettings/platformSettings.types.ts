@@ -30,6 +30,7 @@ export interface LeadFinderConfig {
   scrapingStartTime: string;
   scrapingEndTime: string;
   timezone: string;
+  leadBufferPercent: number;
 }
 
 export interface PlatformSettings {
@@ -99,5 +100,6 @@ export const DEFAULT_PLATFORM_SETTINGS: Omit<PlatformSettings, 'createdAt' | 'up
     scrapingStartTime: '01:00',
     scrapingEndTime: '05:00',
     timezone: 'Asia/Dhaka',
+    leadBufferPercent: 0,
   },
 };

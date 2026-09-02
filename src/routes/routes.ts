@@ -8,6 +8,7 @@ import { accountRoutes, internalAccountRoutes } from '../modules/account/account
 import platformSettingsRouter, { internalPlatformSettingsRouter } from '../modules/platformSettings/platformSettings.route';
 import dataCleanupRouter from '../modules/dataCleanup/dataCleanup.route';
 import { driveAutomationRouter, internalDriveAutomationRouter } from '../modules/driveAutomation/driveAutomation.route';
+import leadRouter, { internalLeadRouter } from '../modules/lead/lead.route';
 
 const router = Router();
 
@@ -26,5 +27,7 @@ router.use('/internal/settings/platform', internalPlatformSettingsRouter);
 router.use('/internal/cron/data-cleanup', dataCleanupRouter);
 router.use('/drive-automation', driveAutomationRouter);
 router.use('/internal/drive-automation', internalDriveAutomationRouter);
+router.use('/leads', leadRouter);
+router.use('/internal/leads', internalLeadRouter);
 
 export default router;

@@ -135,6 +135,23 @@ export const initializeDatabase = async (): Promise<Db> => {
       await db.collection('hashtagGroups').createIndex({ account: 1, order: 1 });
       await db.collection('hashtagRotations').createIndex({ account: 1 }, { unique: true });
 
+      // LeadAssignments Indexes (B3/B4 Quota & Release Control)
+      await db.collection('leadAssignments').createIndex({ targetAccountId: 1, assignedDate: 1 });
+      await db.collection('leadAssignments').createIndex({ targetAccountId: 1, assignedDate: 1, isReserve: 1 });
+      await db.collection('leadAssignments').createIndex({ targetAccountId: 1, assignedDate: 1, availableAt: 1, isReserve: 1 });
+      await db.collection('leadAssignments').createIndex({ status: 1, availableAt: 1 });
+      await db.collection('leadAssignments').createIndex(
+        { targetAccountId: 1, candidateId: 1, assignedDate: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            targetAccountId: { $exists: true },
+            candidateId: { $type: 'string' },
+            assignedDate: { $type: 'string' },
+          },
+        }
+      );
+
       // Idempotent Seed
       const accountsCollection = db.collection('accounts');
       for (const acc of initialAccounts) {

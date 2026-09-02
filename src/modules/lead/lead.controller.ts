@@ -1,0 +1,178 @@
+import { Request, Response } from 'express';
+import catchAsync from '../../utils/catchAsync';
+import * as leadService from './lead.service';
+import * as userService from '../user/user.service';
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const checkApprovedUser = async (uid: string) => {
+  const user = await userService.findUserByFirebaseUid(uid);
+  if (!user || user.status !== 'approved') {
+    return null;
+  }
+  return user;
+};
+
+export const getQuotaSummary = catchAsync(async (req: Request, res: Response) => {
+  const { uid } = req.user!;
+  if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+  const user = await checkApprovedUser(uid);
+  if (!user) return res.status(403).json({ message: 'Forbidden' });
+
+  const account = (req.query.account as string) || '';
+  const date = (req.query.date as string) || '';
+
+  if (!account.trim()) {
+    return res.status(400).json({ message: 'query param account is required' });
+  }
+
+  if (!DATE_REGEX.test(date)) {
+    return res.status(400).json({ message: 'query param date is required in YYYY-MM-DD format' });
+  }
+
+  try {
+    const summary = await leadService.getDailyLeadQuotaSummary(account.trim(), date);
+    return res.status(200).json(summary);
+  } catch (err: any) {
+    if (err.message?.includes('Account not found')) {
+      return res.status(404).json({ message: err.message });
+    }
+    throw err;
+  }
+});
+
+export const getVisibleLeads = catchAsync(async (req: Request, res: Response) => {
+  const { uid } = req.user!;
+  if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+  const user = await checkApprovedUser(uid);
+  if (!user) return res.status(403).json({ message: 'Forbidden' });
+
+  const account = (req.query.account as string) || '';
+  const date = (req.query.date as string) || '';
+
+  if (!account.trim()) {
+    return res.status(400).json({ message: 'query param account is required' });
+  }
+
+  if (!DATE_REGEX.test(date)) {
+    return res.status(400).json({ message: 'query param date is required in YYYY-MM-DD format' });
+  }
+
+  try {
+    const leads = await leadService.getWorkerVisibleLeads(account.trim(), date);
+    return res.status(200).json({
+      account,
+      date,
+      count: leads.length,
+      leads,
+    });
+  } catch (err: any) {
+    if (err.message?.includes('Account not found')) {
+      return res.status(404).json({ message: err.message });
+    }
+    throw err;
+  }
+});
+
+export const assignLeads = catchAsync(async (req: Request, res: Response) => {
+  const { uid } = req.user!;
+  if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+  const user = await checkApprovedUser(uid);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ message: 'Forbidden: Admin only' });
+  }
+
+  const { account, date, candidates, anchorTime } = req.body;
+
+  if (!account || typeof account !== 'string') {
+    return res.status(400).json({ message: 'account is required' });
+  }
+
+  if (!date || !DATE_REGEX.test(date)) {
+    return res.status(400).json({ message: 'date is required in YYYY-MM-DD format' });
+  }
+
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return res.status(400).json({ message: 'candidates must be a non-empty array' });
+  }
+
+  const parsedAnchorTime = anchorTime ? new Date(anchorTime) : undefined;
+  if (anchorTime && isNaN(parsedAnchorTime!.getTime())) {
+    return res.status(400).json({ message: 'Invalid anchorTime' });
+  }
+
+  try {
+    const result = await leadService.assignLeadCandidates({
+      accountIdOrSlug: account.trim(),
+      assignedDate: date,
+      candidates,
+      anchorTime: parsedAnchorTime,
+    });
+
+    return res.status(201).json(result);
+  } catch (err: any) {
+    if (err.message?.includes('Account not found')) {
+      return res.status(404).json({ message: err.message });
+    }
+    throw err;
+  }
+});
+
+export const getAllAssignments = catchAsync(async (req: Request, res: Response) => {
+  const { uid } = req.user!;
+  if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+  const user = await checkApprovedUser(uid);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ message: 'Forbidden: Admin only' });
+  }
+
+  const account = (req.query.account as string) || '';
+  const date = (req.query.date as string) || '';
+
+  if (!account.trim() || !DATE_REGEX.test(date)) {
+    return res.status(400).json({ message: 'Valid account and date query params are required' });
+  }
+
+  const assignments = await leadService.getAllLeadAssignmentsForDate(account.trim(), date);
+  return res.status(200).json({
+    account,
+    date,
+    count: assignments.length,
+    assignments,
+  });
+});
+
+// Internal handlers
+export const internalGetQuotaSummary = catchAsync(async (req: Request, res: Response) => {
+  const account = (req.query.account as string) || '';
+  const date = (req.query.date as string) || '';
+
+  if (!account.trim() || !DATE_REGEX.test(date)) {
+    return res.status(400).json({ message: 'Valid account and date query params are required' });
+  }
+
+  const summary = await leadService.getDailyLeadQuotaSummary(account.trim(), date);
+  return res.status(200).json(summary);
+});
+
+export const internalAssignLeads = catchAsync(async (req: Request, res: Response) => {
+  const { account, date, candidates, anchorTime } = req.body;
+
+  if (!account || typeof account !== 'string' || !date || !DATE_REGEX.test(date) || !Array.isArray(candidates)) {
+    return res.status(400).json({ message: 'Invalid payload: account, date, and candidates array are required' });
+  }
+
+  const parsedAnchorTime = anchorTime ? new Date(anchorTime) : undefined;
+  const result = await leadService.assignLeadCandidates({
+    accountIdOrSlug: account.trim(),
+    assignedDate: date,
+    candidates,
+    anchorTime: parsedAnchorTime,
+  });
+
+  return res.status(201).json(result);
+});
