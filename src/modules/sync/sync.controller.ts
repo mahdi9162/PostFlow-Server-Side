@@ -44,23 +44,20 @@ const handleSyncTrigger = async (
     ? HEAVY_JOB_PRIORITY.POST_SYNC_AUTO
     : HEAVY_JOB_PRIORITY.POST_SYNC_MANUAL;
 
-  // 1. Enqueue automation job
+  // 1. Enqueue automation job with minimal payload
   const { job } = await enqueueAutomationJob({
     jobType: 'POST_SYNC',
     priority,
     targetDate,
     triggeredBy,
     payload: {
-      targetDate,
-      triggeredBy,
-      syncPlan,
-      retryOf,
-      retryItems,
       isAutoSync,
+      ...(retryOf ? { retryOf } : {}),
+      ...(retryItems ? { retryItems } : {}),
     },
   });
 
-  // 2. Acquire global heavy lock
+  // 2. Attempt to acquire global heavy lock
   const lockAcquired = await acquireGlobalHeavyLock(job._id!);
   if (!lockAcquired) {
     const activeJob = await getRunningHeavyJob();
@@ -125,13 +122,20 @@ const handleSyncTrigger = async (
   // 4. Trigger existing n8n sync workflow
   const settings = await getPlatformSettings();
 
+  // If syncPlan wasn't passed in (e.g. retry or direct trigger), compute fresh
+  let finalSyncPlan = syncPlan;
+  if (!finalSyncPlan && !retryOf) {
+    const planResult = await buildSyncPlan(targetDate);
+    finalSyncPlan = planResult.syncPlan;
+  }
+
   const payload = {
     targetDate,
     triggeredBy,
     requestId: crypto.randomUUID(),
     syncId: syncId.toString(),
     aiConfig: settings.ai,
-    ...(syncPlan ? { syncPlan } : {}),
+    ...(finalSyncPlan ? { syncPlan: finalSyncPlan } : {}),
     ...(retryItems ? { retryItems } : {}),
   };
 

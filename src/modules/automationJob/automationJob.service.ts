@@ -6,6 +6,7 @@ import {
   EnqueueJobParams,
   EnqueueJobResult,
   HeavyJobStatus,
+  HEAVY_JOB_PRIORITY,
 } from './automationJob.types';
 import { SyncRun } from '../sync/sync.types';
 import {
@@ -40,11 +41,32 @@ export const enqueueAutomationJob = async (
 ): Promise<EnqueueJobResult> => {
   const db = getDB();
 
-  // For LEAD_AUTO: Check if an active/pending job for the same targetDate already exists
+  // 1. For LEAD_AUTO: Check if an active/pending job for the same targetDate already exists
   if (params.jobType === 'LEAD_AUTO' && params.targetDate) {
     const existing = await db.collection<AutomationJob>('automationJobs').findOne({
       jobType: 'LEAD_AUTO',
       targetDate: params.targetDate,
+      status: { $in: ['pending', 'running'] },
+    });
+
+    if (existing) {
+      return {
+        job: existing,
+        isCoalesced: true,
+      };
+    }
+  }
+
+  // 2. For Auto POST_SYNC: Coalesce duplicate pending/running auto-sync triggers for same targetDate
+  if (
+    params.jobType === 'POST_SYNC' &&
+    params.priority === HEAVY_JOB_PRIORITY.POST_SYNC_AUTO &&
+    params.targetDate
+  ) {
+    const existing = await db.collection<AutomationJob>('automationJobs').findOne({
+      jobType: 'POST_SYNC',
+      targetDate: params.targetDate,
+      priority: HEAVY_JOB_PRIORITY.POST_SYNC_AUTO,
       status: { $in: ['pending', 'running'] },
     });
 
@@ -75,18 +97,40 @@ export const enqueueAutomationJob = async (
       isCoalesced: false,
     };
   } catch (err: any) {
-    // Catch duplicate key error on LEAD_AUTO coalescing index
-    if (err.code === 11000 && params.jobType === 'LEAD_AUTO' && params.targetDate) {
-      const existing = await db.collection<AutomationJob>('automationJobs').findOne({
-        jobType: 'LEAD_AUTO',
-        targetDate: params.targetDate,
-        status: { $in: ['pending', 'running'] },
-      });
-      if (existing) {
-        return {
-          job: existing,
-          isCoalesced: true,
-        };
+    if (err.code === 11000) {
+      // Catch duplicate key on LEAD_AUTO coalescing index
+      if (params.jobType === 'LEAD_AUTO' && params.targetDate) {
+        const existing = await db.collection<AutomationJob>('automationJobs').findOne({
+          jobType: 'LEAD_AUTO',
+          targetDate: params.targetDate,
+          status: { $in: ['pending', 'running'] },
+        });
+        if (existing) {
+          return {
+            job: existing,
+            isCoalesced: true,
+          };
+        }
+      }
+
+      // Catch duplicate key on Auto POST_SYNC coalescing index
+      if (
+        params.jobType === 'POST_SYNC' &&
+        params.priority === HEAVY_JOB_PRIORITY.POST_SYNC_AUTO &&
+        params.targetDate
+      ) {
+        const existing = await db.collection<AutomationJob>('automationJobs').findOne({
+          jobType: 'POST_SYNC',
+          targetDate: params.targetDate,
+          priority: HEAVY_JOB_PRIORITY.POST_SYNC_AUTO,
+          status: { $in: ['pending', 'running'] },
+        });
+        if (existing) {
+          return {
+            job: existing,
+            isCoalesced: true,
+          };
+        }
       }
     }
     throw err;
@@ -251,30 +295,71 @@ export const executePostSyncJob = async (job: AutomationJob): Promise<void> => {
     return;
   }
 
+  const isAutoSync = payload?.isAutoSync ?? (triggeredBy === 'system-auto-sync');
+  const retryOf = payload?.retryOf;
+  const retryItems = payload?.retryItems;
+
   try {
-    const retryOf = payload?.retryOf;
-    const syncId = await createSyncRun(targetDate, triggeredBy, retryOf);
-    await updateAutomationJobReference(job._id!, syncId);
-
     const settings = await getPlatformSettings();
-    let syncPlan = payload?.syncPlan;
-    if (!syncPlan && !retryOf) {
-      const planResult = await buildSyncPlan(targetDate);
-      syncPlan = planResult.syncPlan;
+
+    // 1. If Auto POST_SYNC was waiting in queue:
+    if (isAutoSync) {
+      if (settings.autoSync?.enabled !== true) {
+        // Auto sync disabled while waiting
+        await releaseHeavyJobLock(job._id!, 'completed', {
+          errorMessage: 'Auto sync is disabled',
+        });
+        return;
+      }
+
+      // Rebuild fresh sync plan at execution time
+      const { syncPlan, allFulfilled } = await buildSyncPlan(targetDate);
+      if (Object.keys(syncPlan).length === 0 || allFulfilled) {
+        // Daily post targets already fulfilled or no active accounts
+        await releaseHeavyJobLock(job._id!, 'completed');
+        return;
+      }
+
+      // Create syncRun only after global lock is held and plan is verified
+      const syncId = await createSyncRun(targetDate, triggeredBy, retryOf);
+      await updateAutomationJobReference(job._id!, syncId);
+
+      const triggerPayload = {
+        targetDate,
+        triggeredBy,
+        requestId: crypto.randomUUID(),
+        syncId: syncId.toString(),
+        aiConfig: settings.ai,
+        syncPlan,
+      };
+
+      await triggerSync(triggerPayload);
+    } else {
+      // 2. Manual or Retry POST_SYNC
+      let syncPlan: Record<string, any> | undefined;
+      if (!retryOf) {
+        // Freshly recalculate sync plan
+        const planResult = await buildSyncPlan(targetDate);
+        syncPlan = planResult.syncPlan;
+      }
+
+      const syncId = await createSyncRun(targetDate, triggeredBy, retryOf);
+      await updateAutomationJobReference(job._id!, syncId);
+
+      const triggerPayload = {
+        targetDate,
+        triggeredBy,
+        requestId: crypto.randomUUID(),
+        syncId: syncId.toString(),
+        aiConfig: settings.ai,
+        ...(syncPlan ? { syncPlan } : {}),
+        ...(retryItems ? { retryItems } : {}),
+      };
+
+      await triggerSync(triggerPayload);
     }
-
-    const triggerPayload = {
-      targetDate,
-      triggeredBy,
-      requestId: crypto.randomUUID(),
-      syncId: syncId.toString(),
-      aiConfig: settings.ai,
-      ...(syncPlan ? { syncPlan } : {}),
-      ...(payload?.retryItems ? { retryItems: payload.retryItems } : {}),
-    };
-
-    await triggerSync(triggerPayload);
   } catch (error: any) {
+    console.error(`[JobQueue] Error executing POST_SYNC job ${job._id}:`, error);
     if (job.referenceId) {
       await updateSyncRunToFailed(
         job.referenceId.toString(),
@@ -282,7 +367,7 @@ export const executePostSyncJob = async (job: AutomationJob): Promise<void> => {
       );
     }
     await releaseHeavyJobLock(job._id!, 'failed', {
-      errorMessage: 'Sync workflow could not be started.',
+      errorMessage: error?.message || 'Sync workflow could not be started.',
     });
   }
 };

@@ -115,6 +115,17 @@ export const initializeDatabase = async (): Promise<Db> => {
           },
         }
       );
+      await db.collection('automationJobs').createIndex(
+        { jobType: 1, targetDate: 1, priority: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            jobType: 'POST_SYNC',
+            priority: 30,
+            status: { $in: ['pending', 'running'] },
+          },
+        }
+      );
 
       // DriveAutomationRuns Indexes
       await db.collection('driveAutomationRuns').createIndex({ createdAt: -1 });
