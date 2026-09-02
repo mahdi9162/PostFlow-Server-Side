@@ -9,7 +9,7 @@ import platformSettingsRouter, { internalPlatformSettingsRouter } from '../modul
 import dataCleanupRouter from '../modules/dataCleanup/dataCleanup.route';
 import { driveAutomationRouter, internalDriveAutomationRouter } from '../modules/driveAutomation/driveAutomation.route';
 import leadRouter, { internalLeadRouter } from '../modules/lead/lead.route';
-import seedAccountRouter from '../modules/seedAccount/seedAccount.route';
+import seedAccountRouter, { internalSeedAccountRouter } from '../modules/seedAccount/seedAccount.route';
 
 const router = Router();
 
@@ -31,5 +31,6 @@ router.use('/internal/drive-automation', internalDriveAutomationRouter);
 router.use('/leads', leadRouter);
 router.use('/internal/leads', internalLeadRouter);
 router.use('/lead-seeds', seedAccountRouter);
+router.use('/internal/lead-seeds', internalSeedAccountRouter);
 
 export default router;

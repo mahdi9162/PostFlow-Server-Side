@@ -25,6 +25,26 @@ const RESERVED_PATHS = new Set([
   'push',
 ]);
 
+export const VALID_DISCOVERY_SIGNALS = new Set([
+  'tagged',
+  'mention',
+  'collaboration',
+  'related-account',
+  'recurring-community',
+  'pug-lifestyle-interaction',
+  'product-adjacent',
+  'other',
+]);
+
+/**
+ * Normalizes a raw discovery signal string into a recognized standardized signal type.
+ */
+export const normalizeDiscoverySignal = (signal?: string): string => {
+  if (!signal || typeof signal !== 'string') return 'other';
+  const clean = signal.trim().toLowerCase().replace(/\s+/g, '-');
+  return VALID_DISCOVERY_SIGNALS.has(clean) ? clean : 'other';
+};
+
 /**
  * Normalizes an Instagram username or profile URL into a clean canonical lowercase username.
  * Rejects post/reel/explore URLs and invalid username characters.

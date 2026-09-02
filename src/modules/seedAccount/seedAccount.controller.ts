@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import catchAsync from '../../utils/catchAsync';
 import * as seedService from './seedAccount.service';
 import * as userService from '../user/user.service';
-import { SeedAccountStatus } from './seedAccount.types';
+import { SeedAccountStatus, DiscoveredCandidateInput } from './seedAccount.types';
 
 const checkApprovedUser = async (uid: string) => {
   const user = await userService.findUserByFirebaseUid(uid);
@@ -109,4 +109,53 @@ export const updateSeedAccount = catchAsync(async (req: Request, res: Response) 
   }
 
   return res.status(200).json(updated);
+});
+
+/**
+ * INTERNAL API: Fetch active verified seeds for n8n workflow.
+ * Protected by INTERNAL_API_KEY.
+ */
+export const getActiveSeedsInternal = catchAsync(async (req: Request, res: Response) => {
+  const seeds = await seedService.getActiveVerifiedSeeds();
+  return res.status(200).json({
+    count: seeds.length,
+    seeds,
+  });
+});
+
+/**
+ * INTERNAL API: Ingest discovered candidates from n8n workflow.
+ * Protected by INTERNAL_API_KEY.
+ * Accepts either single candidate object or array/batch: { candidates: [...] } or [...]
+ */
+export const ingestDiscoveredCandidatesInternal = catchAsync(async (req: Request, res: Response) => {
+  let candidates: DiscoveredCandidateInput[] = [];
+
+  if (Array.isArray(req.body)) {
+    candidates = req.body;
+  } else if (Array.isArray(req.body.candidates)) {
+    candidates = req.body.candidates;
+  } else if (req.body && typeof req.body === 'object' && req.body.username) {
+    candidates = [req.body];
+  } else {
+    return res.status(400).json({
+      message: 'Invalid payload: provide a candidate object or array of candidates with username',
+    });
+  }
+
+  if (candidates.length === 0) {
+    return res.status(400).json({ message: 'Candidates array is empty' });
+  }
+
+  const results = [];
+  for (const candidate of candidates) {
+    const resItem = await seedService.ingestDiscoveredCandidate(candidate);
+    results.push(resItem);
+  }
+
+  return res.status(200).json({
+    status: 'ok',
+    processed: results.length,
+    results,
+  });
 });
