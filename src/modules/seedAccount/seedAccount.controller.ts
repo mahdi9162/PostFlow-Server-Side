@@ -159,3 +159,34 @@ export const ingestDiscoveredCandidatesInternal = catchAsync(async (req: Request
     results,
   });
 });
+
+export const deleteSeedAccount = catchAsync(async (req: Request, res: Response) => {
+  const { uid } = req.user!;
+  if (!uid) return res.status(401).json({ message: 'Unauthorized' });
+
+  const adminUser = await checkAdminUser(uid);
+  if (!adminUser) {
+    return res.status(403).json({ message: 'Forbidden: Admin only' });
+  }
+
+  const id = req.params.id as string;
+
+  try {
+    const result = await seedService.deleteSeedAccount(id);
+    return res.status(200).json({
+      message: 'Seed account permanently deleted',
+      username: result.username,
+    });
+  } catch (err: any) {
+    if (err.message === 'NOT_FOUND') {
+      return res.status(404).json({ message: 'Seed account not found' });
+    }
+    if (err.name === 'ConflictError') {
+      return res.status(409).json({ message: err.message });
+    }
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ message: err.message });
+    }
+    throw err;
+  }
+});

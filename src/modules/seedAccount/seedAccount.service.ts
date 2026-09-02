@@ -363,3 +363,44 @@ export const updateSeedAccount = async (
 
   return res as SeedAccount | null;
 };
+
+/**
+ * Permanently delete an archived seed account.
+ * 
+ * Safety Rules:
+ * 1. Validate ObjectId.
+ * 2. Record must exist.
+ * 3. Status must be 'archived'.
+ * 4. Must not be referenced as discoveredFromSeedId by any candidate.
+ */
+export const deleteSeedAccount = async (
+  id: string
+): Promise<{ deleted: boolean; username: string }> => {
+  if (!ObjectId.isValid(id)) {
+    throw new ValidationError('Invalid seed account id');
+  }
+
+  const collection = getCollection();
+  const existing = await collection.findOne({ _id: new ObjectId(id) });
+
+  if (!existing) {
+    throw new Error('NOT_FOUND');
+  }
+
+  if (existing.status !== 'archived') {
+    throw new ValidationError(
+      'Only archived seed accounts can be permanently deleted. Archive the account first.'
+    );
+  }
+
+  // Check whether another seed account references this record as its discovery source
+  const referencingCandidate = await collection.findOne({ discoveredFromSeedId: id });
+  if (referencingCandidate) {
+    throw new ConflictError(
+      'Cannot permanently delete this seed because discovered candidates still reference it.'
+    );
+  }
+
+  await collection.deleteOne({ _id: new ObjectId(id) });
+  return { deleted: true, username: existing.username };
+};

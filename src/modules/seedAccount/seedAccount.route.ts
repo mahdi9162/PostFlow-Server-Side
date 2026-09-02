@@ -6,6 +6,7 @@ import {
   getSeedAccountById,
   createSeedAccount,
   updateSeedAccount,
+  deleteSeedAccount,
   getActiveSeedsInternal,
   ingestDiscoveredCandidatesInternal,
 } from './seedAccount.controller';
@@ -17,6 +18,7 @@ router.get('/', verifyFirebaseToken, getSeedAccounts);
 router.get('/:id', verifyFirebaseToken, getSeedAccountById);
 router.post('/', verifyFirebaseToken, createSeedAccount);
 router.patch('/:id', verifyFirebaseToken, updateSeedAccount);
+router.delete('/:id', verifyFirebaseToken, deleteSeedAccount);
 
 // Internal Automation / n8n Endpoints
 export const internalSeedAccountRouter = Router();
