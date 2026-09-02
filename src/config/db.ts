@@ -89,6 +89,33 @@ export const initializeDatabase = async (): Promise<Db> => {
         }
       );
 
+      // AutomationJobs Indexes (Platform-wide Heavy Lock & Priority Queue)
+      await db.collection('automationJobs').createIndex({ createdAt: 1 });
+      await db.collection('automationJobs').createIndex({ status: 1 });
+      await db.collection('automationJobs').createIndex({ targetDate: 1 });
+      await db.collection('automationJobs').createIndex({ referenceId: 1 });
+      await db.collection('automationJobs').createIndex({ status: 1, priority: -1, createdAt: 1 });
+      await db.collection('automationJobs').createIndex(
+        { lockKey: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            status: 'running',
+            lockKey: 'global-heavy-lock',
+          },
+        }
+      );
+      await db.collection('automationJobs').createIndex(
+        { jobType: 1, targetDate: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            jobType: 'LEAD_AUTO',
+            status: { $in: ['pending', 'running'] },
+          },
+        }
+      );
+
       // DriveAutomationRuns Indexes
       await db.collection('driveAutomationRuns').createIndex({ createdAt: -1 });
       await db.collection('driveAutomationRuns').createIndex({ n8nExecutionId: 1 });

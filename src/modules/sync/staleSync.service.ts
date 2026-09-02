@@ -1,6 +1,7 @@
 import { getDB } from '../../config/db';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
 import { SyncRun } from './sync.types';
+import { resolveStaleHeavyJobs } from '../automationJob/automationJob.service';
 
 export const resolveStaleSyncRuns = async ({ dryRun }: { dryRun: boolean }) => {
   const settings = await getPlatformSettings();
@@ -37,7 +38,7 @@ export const resolveStaleSyncRuns = async ({ dryRun }: { dryRun: boolean }) => {
 
   if (dryRun) {
     const staleCount = await collection.countDocuments(filter);
-    
+
     // Max 5 samples
     const sampleDocs = await collection
       .find(filter)
@@ -61,8 +62,11 @@ export const resolveStaleSyncRuns = async ({ dryRun }: { dryRun: boolean }) => {
     };
   }
 
-  // Execute mode
-  // Pipeline update guarantees atomic operations.
+  // Execute mode:
+  // 1. Resolve stale heavy automation jobs and linked sync runs
+  await resolveStaleHeavyJobs({ timeoutMinutes });
+
+  // 2. Resolve any remaining unlinked/legacy running syncRuns
   const result = await collection.updateMany(filter, [
     {
       $set: {
@@ -73,7 +77,8 @@ export const resolveStaleSyncRuns = async ({ dryRun }: { dryRun: boolean }) => {
           success: false,
           status: 'INCOMPLETE',
           targetDate: '$targetDate',
-          message: 'Sync automatically marked incomplete after exceeding the configured running timeout.',
+          message:
+            'Sync automatically marked incomplete after exceeding the configured running timeout.',
           resolutionReason: 'STALE_TIMEOUT',
         },
       },

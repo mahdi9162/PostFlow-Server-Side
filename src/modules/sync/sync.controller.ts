@@ -4,8 +4,27 @@ import { ObjectId } from 'mongodb';
 import catchAsync from '../../utils/catchAsync';
 import { findUserByFirebaseUid } from '../user/user.service';
 import { validateAndDeriveDay } from '../post/post.helper';
-import { triggerSync, createSyncRun, getSyncRunById, getRunningSync, getChildRetrySyncRun, updateSyncRunToFailed, updateSyncRunToFinalized, getPaginatedSyncHistory, buildSyncPlan } from './sync.service';
+import {
+  triggerSync,
+  createSyncRun,
+  getSyncRunById,
+  getRunningSync,
+  getChildRetrySyncRun,
+  updateSyncRunToFailed,
+  updateSyncRunToFinalized,
+  getPaginatedSyncHistory,
+  buildSyncPlan,
+} from './sync.service';
 import { getPlatformSettings } from '../platformSettings/platformSettings.service';
+import {
+  enqueueAutomationJob,
+  acquireGlobalHeavyLock,
+  updateAutomationJobReference,
+  releaseHeavyJobLock,
+  releaseHeavyJobLockByReference,
+  getRunningHeavyJob,
+} from '../automationJob/automationJob.service';
+import { HEAVY_JOB_PRIORITY } from '../automationJob/automationJob.types';
 
 const isNonNegativeFiniteNumber = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -15,12 +34,69 @@ const handleSyncTrigger = async (
   triggeredBy: string,
   res: Response,
   syncPlan?: any,
-  isAutoSync = false
+  isAutoSync = false,
+  retryOf?: string,
+  retryItems?: any[]
 ) => {
+  const priority = retryOf
+    ? HEAVY_JOB_PRIORITY.POST_SYNC_RETRY
+    : isAutoSync
+    ? HEAVY_JOB_PRIORITY.POST_SYNC_AUTO
+    : HEAVY_JOB_PRIORITY.POST_SYNC_MANUAL;
+
+  // 1. Enqueue automation job
+  const { job } = await enqueueAutomationJob({
+    jobType: 'POST_SYNC',
+    priority,
+    targetDate,
+    triggeredBy,
+    payload: {
+      targetDate,
+      triggeredBy,
+      syncPlan,
+      retryOf,
+      retryItems,
+      isAutoSync,
+    },
+  });
+
+  // 2. Acquire global heavy lock
+  const lockAcquired = await acquireGlobalHeavyLock(job._id!);
+  if (!lockAcquired) {
+    const activeJob = await getRunningHeavyJob();
+    const activeSync = activeJob?.referenceId
+      ? await getSyncRunById(activeJob.referenceId.toString())
+      : await getRunningSync();
+
+    if (isAutoSync) {
+      return res.status(200).json({
+        success: true,
+        status: 'already_running',
+        jobId: job._id?.toString(),
+        activeSyncId: activeSync?._id?.toString(),
+        activeTargetDate: activeSync?.targetDate || activeJob?.targetDate,
+        message: 'Another sync or heavy automation is already running',
+      });
+    }
+
+    return res.status(409).json({
+      success: false,
+      status: 'already_running',
+      jobId: job._id?.toString(),
+      activeSyncId: activeSync?._id?.toString(),
+      activeTargetDate: activeSync?.targetDate || activeJob?.targetDate,
+      message: 'Another sync or heavy automation is already running',
+    });
+  }
+
+  // 3. ONLY after lock is acquired: create syncRun
   let syncId: ObjectId;
   try {
-    syncId = await createSyncRun(targetDate, triggeredBy);
+    syncId = await createSyncRun(targetDate, triggeredBy, retryOf);
   } catch (error: any) {
+    await releaseHeavyJobLock(job._id!, 'failed', {
+      errorMessage: 'Failed to create syncRun',
+    });
     if (error?.code === 11000) {
       const activeSync = await getRunningSync();
       if (isAutoSync) {
@@ -29,7 +105,7 @@ const handleSyncTrigger = async (
           status: 'already_running',
           activeSyncId: activeSync?._id?.toString(),
           activeTargetDate: activeSync?.targetDate,
-          message: 'Another sync is already running'
+          message: 'Another sync is already running',
         });
       }
       return res.status(409).json({
@@ -37,12 +113,16 @@ const handleSyncTrigger = async (
         status: 'already_running',
         activeSyncId: activeSync?._id?.toString(),
         activeTargetDate: activeSync?.targetDate,
-        message: 'Another sync is already running'
+        message: 'Another sync is already running',
       });
     }
     throw error;
   }
 
+  // Link referenceId in automationJob
+  await updateAutomationJobReference(job._id!, syncId);
+
+  // 4. Trigger existing n8n sync workflow
   const settings = await getPlatformSettings();
 
   const payload = {
@@ -51,13 +131,20 @@ const handleSyncTrigger = async (
     requestId: crypto.randomUUID(),
     syncId: syncId.toString(),
     aiConfig: settings.ai,
-    ...(syncPlan ? { syncPlan } : {})
+    ...(syncPlan ? { syncPlan } : {}),
+    ...(retryItems ? { retryItems } : {}),
   };
 
   try {
     await triggerSync(payload);
   } catch (error: any) {
-    await updateSyncRunToFailed(syncId.toString(), 'Sync workflow could not be started.');
+    await updateSyncRunToFailed(
+      syncId.toString(),
+      'Sync workflow could not be started.'
+    );
+    await releaseHeavyJobLock(job._id!, 'failed', {
+      errorMessage: 'Sync workflow could not be started.',
+    });
     return res.status(502).json({ message: 'Sync workflow could not be started.' });
   }
 
@@ -66,7 +153,7 @@ const handleSyncTrigger = async (
     syncId: syncId.toString(),
     targetDate,
     status: 'running',
-    message: 'Sync started'
+    message: retryOf ? 'Retry sync started' : 'Sync started',
   });
 };
 
@@ -92,19 +179,21 @@ export const prepareSync = catchAsync(async (req: Request, res: Response) => {
     return res.status(403).json({ message: 'Forbidden' });
   }
 
-  const runningSync = await getRunningSync();
-  if (runningSync) {
+  const runningJob = await getRunningHeavyJob();
+  if (runningJob) {
+    const activeSync = runningJob.referenceId
+      ? await getSyncRunById(runningJob.referenceId.toString())
+      : await getRunningSync();
     return res.status(409).json({
       success: false,
       status: 'already_running',
-      activeSyncId: runningSync._id?.toString(),
-      activeTargetDate: runningSync.targetDate,
-      message: 'Another sync is already running'
+      activeSyncId: activeSync?._id?.toString(),
+      activeTargetDate: activeSync?.targetDate || runningJob.targetDate,
+      message: 'Another sync or heavy automation is already running',
     });
   }
 
   const triggeredBy = user.email || uid;
-  
   const { syncPlan } = await buildSyncPlan(targetDate);
 
   return handleSyncTrigger(targetDate, triggeredBy, res, syncPlan, false);
@@ -140,71 +229,42 @@ export const retryFailedSync = catchAsync(async (req: Request, res: Response) =>
   if (existingRetry) {
     return res.status(409).json({
       message: 'This sync run has already been retried.',
-      retryRunId: existingRetry._id?.toString()
+      retryRunId: existingRetry._id?.toString(),
     });
   }
 
-  const runningSync = await getRunningSync();
-  if (runningSync) {
+  const runningJob = await getRunningHeavyJob();
+  if (runningJob) {
+    const activeSync = runningJob.referenceId
+      ? await getSyncRunById(runningJob.referenceId.toString())
+      : await getRunningSync();
     return res.status(409).json({
       success: false,
       status: 'already_running',
-      activeSyncId: runningSync._id?.toString(),
-      activeTargetDate: runningSync.targetDate,
-      message: 'Another sync is already running'
+      activeSyncId: activeSync?._id?.toString(),
+      activeTargetDate: activeSync?.targetDate || runningJob.targetDate,
+      message: 'Another sync or heavy automation is already running',
     });
   }
 
   const triggeredBy = user.email || uid;
-  let newSyncId: ObjectId;
-  try {
-    newSyncId = await createSyncRun(originalSyncRun.targetDate, triggeredBy, syncId);
-  } catch (error: any) {
-    if (error?.code === 11000) {
-      const activeSync = await getRunningSync();
-      return res.status(409).json({
-        success: false,
-        status: 'already_running',
-        activeSyncId: activeSync?._id?.toString(),
-        activeTargetDate: activeSync?.targetDate,
-        message: 'Another sync is already running'
-      });
-    }
-    throw error;
-  }
-  const settings = await getPlatformSettings();
-
   const retryItems = originalSyncRun.result.failedItems.map((item) => ({
     account: item.account,
     driveFileId: item.driveFileId,
     fileName: item.fileName,
     mimeType: item.mimeType,
-    fingerprint: item.fingerprint
+    fingerprint: item.fingerprint,
   }));
 
-  const payload = {
-    targetDate: originalSyncRun.targetDate,
+  return handleSyncTrigger(
+    originalSyncRun.targetDate,
     triggeredBy,
-    requestId: crypto.randomUUID(),
-    syncId: newSyncId.toString(),
-    aiConfig: settings.ai,
-    retryItems,
-  };
-
-  try {
-    await triggerSync(payload);
-  } catch (error: any) {
-    await updateSyncRunToFailed(newSyncId.toString(), 'Sync workflow could not be started.');
-    return res.status(502).json({ message: 'Sync workflow could not be started.' });
-  }
-
-  return res.status(200).json({
-    success: true,
-    syncId: newSyncId.toString(),
-    targetDate: originalSyncRun.targetDate,
-    status: 'running',
-    message: 'Retry sync started'
-  });
+    res,
+    undefined,
+    false,
+    syncId,
+    retryItems
+  );
 });
 
 export const getSyncHistory = catchAsync(async (req: Request, res: Response) => {
@@ -229,8 +289,8 @@ export const getSyncHistory = catchAsync(async (req: Request, res: Response) => 
       page,
       limit,
       totalCount,
-      totalPages: Math.ceil(totalCount / limit)
-    }
+      totalPages: Math.ceil(totalCount / limit),
+    },
   });
 });
 
@@ -265,11 +325,16 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       createdAt: syncRun.createdAt,
       triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
-      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString(),
     });
   }
 
-  if (syncRun.status === 'completed' || syncRun.status === 'partial_success' || syncRun.status === 'incomplete' || (syncRun.status === 'failed' && syncRun.result)) {
+  if (
+    syncRun.status === 'completed' ||
+    syncRun.status === 'partial_success' ||
+    syncRun.status === 'incomplete' ||
+    (syncRun.status === 'failed' && syncRun.result)
+  ) {
     return res.status(200).json({
       success: syncRun.result ? syncRun.result.success : false,
       syncId: syncRun._id?.toString(),
@@ -280,7 +345,7 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       completedAt: syncRun.completedAt,
       triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
-      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString(),
     });
   }
 
@@ -295,7 +360,7 @@ export const getSyncStatus = catchAsync(async (req: Request, res: Response) => {
       completedAt: syncRun.completedAt,
       triggeredBy: syncRun.triggeredBy,
       retryOf: syncRun.retryOf,
-      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString()
+      retryRunId: (await getChildRetrySyncRun(syncRun._id!.toString()))?._id?.toString(),
     });
   }
 });
@@ -340,7 +405,9 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
     !isNonNegativeFiniteNumber(data.skippedDuplicates) ||
     !isNonNegativeFiniteNumber(data.qualitySkipped) ||
     !isNonNegativeFiniteNumber(data.failed) ||
-    typeof data.accounts !== 'object' || data.accounts === null || Array.isArray(data.accounts)
+    typeof data.accounts !== 'object' ||
+    data.accounts === null ||
+    Array.isArray(data.accounts)
   ) {
     return res.status(400).json({ message: 'Invalid summary payload format' });
   }
@@ -348,7 +415,9 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
   for (const acc in data.accounts) {
     const accData = data.accounts[acc];
     if (typeof accData !== 'object' || accData === null || Array.isArray(accData)) {
-      return res.status(400).json({ message: `Invalid summary payload format for account ${acc}` });
+      return res
+        .status(400)
+        .json({ message: `Invalid summary payload format for account ${acc}` });
     }
     if (
       !isNonNegativeFiniteNumber(accData.found) ||
@@ -357,13 +426,19 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
       !isNonNegativeFiniteNumber(accData.qualitySkipped) ||
       !isNonNegativeFiniteNumber(accData.failed)
     ) {
-      return res.status(400).json({ message: `Invalid summary payload format for account ${acc}` });
+      return res
+        .status(400)
+        .json({ message: `Invalid summary payload format for account ${acc}` });
     }
   }
 
-  const derivedProcessed = data.created + data.skippedDuplicates + data.qualitySkipped + data.failed;
+  const derivedProcessed =
+    data.created + data.skippedDuplicates + data.qualitySkipped + data.failed;
   if (data.processed !== derivedProcessed) {
-    return res.status(400).json({ message: 'processed must equal created + skippedDuplicates + qualitySkipped + failed' });
+    return res.status(400).json({
+      message:
+        'processed must equal created + skippedDuplicates + qualitySkipped + failed',
+    });
   }
 
   if (data.processed > data.totalCandidates) {
@@ -371,20 +446,46 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
   }
 
   if (data.status === 'COMPLETED') {
-    if (data.processed !== data.totalCandidates || data.failed !== 0 || data.success !== true) {
-      return res.status(400).json({ message: 'Invalid status condition: COMPLETED requires processed === totalCandidates, failed === 0, success === true' });
+    if (
+      data.processed !== data.totalCandidates ||
+      data.failed !== 0 ||
+      data.success !== true
+    ) {
+      return res.status(400).json({
+        message:
+          'Invalid status condition: COMPLETED requires processed === totalCandidates, failed === 0, success === true',
+      });
     }
   } else if (data.status === 'PARTIAL_SUCCESS') {
-    if (data.processed !== data.totalCandidates || data.failed === 0 || data.created === 0 || data.success !== false) {
-      return res.status(400).json({ message: 'Invalid status condition: PARTIAL_SUCCESS requires processed === totalCandidates, failed > 0, created > 0, success === false' });
+    if (
+      data.processed !== data.totalCandidates ||
+      data.failed === 0 ||
+      data.created === 0 ||
+      data.success !== false
+    ) {
+      return res.status(400).json({
+        message:
+          'Invalid status condition: PARTIAL_SUCCESS requires processed === totalCandidates, failed > 0, created > 0, success === false',
+      });
     }
   } else if (data.status === 'FAILED') {
-    if (data.processed !== data.totalCandidates || data.failed === 0 || data.created !== 0 || data.success !== false) {
-      return res.status(400).json({ message: 'Invalid status condition: FAILED requires processed === totalCandidates, failed > 0, created === 0, success === false' });
+    if (
+      data.processed !== data.totalCandidates ||
+      data.failed === 0 ||
+      data.created !== 0 ||
+      data.success !== false
+    ) {
+      return res.status(400).json({
+        message:
+          'Invalid status condition: FAILED requires processed === totalCandidates, failed > 0, created === 0, success === false',
+      });
     }
   } else if (data.status === 'INCOMPLETE') {
     if (data.processed >= data.totalCandidates || data.success !== false) {
-      return res.status(400).json({ message: 'Invalid status condition: INCOMPLETE requires processed < totalCandidates, success === false' });
+      return res.status(400).json({
+        message:
+          'Invalid status condition: INCOMPLETE requires processed < totalCandidates, success === false',
+      });
     }
   }
 
@@ -400,14 +501,17 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
     failed: data.failed,
     accounts: data.accounts,
     message: typeof data.message === 'string' ? data.message : undefined,
-    failedItems: Array.isArray(data.failedItems) ? data.failedItems : []
+    failedItems: Array.isArray(data.failedItems) ? data.failedItems : [],
   };
 
-  const internalStatusMap: Record<string, 'completed' | 'partial_success' | 'failed' | 'incomplete'> = {
-    'COMPLETED': 'completed',
-    'PARTIAL_SUCCESS': 'partial_success',
-    'FAILED': 'failed',
-    'INCOMPLETE': 'incomplete'
+  const internalStatusMap: Record<
+    string,
+    'completed' | 'partial_success' | 'failed' | 'incomplete'
+  > = {
+    COMPLETED: 'completed',
+    PARTIAL_SUCCESS: 'partial_success',
+    FAILED: 'failed',
+    INCOMPLETE: 'incomplete',
   };
 
   const dbStatus = internalStatusMap[data.status];
@@ -416,6 +520,12 @@ export const internalFinalizeSync = catchAsync(async (req: Request, res: Respons
   if (!updated) {
     return res.status(200).json({ message: 'Sync run is already finalized' });
   }
+
+  // Release the heavy-workflow lock in automationJobs and dispatch next queued job
+  await releaseHeavyJobLockByReference(
+    new ObjectId(syncId),
+    dbStatus === 'completed' || dbStatus === 'partial_success' ? 'completed' : 'failed'
+  );
 
   return res.status(200).json({ message: 'Sync finalized successfully' });
 });
@@ -442,6 +552,11 @@ export const internalFailSync = catchAsync(async (req: Request, res: Response) =
     return res.status(200).json({ message: 'Sync run is already finalized' });
   }
 
+  // Release the heavy-workflow lock in automationJobs and dispatch next queued job
+  await releaseHeavyJobLockByReference(new ObjectId(syncId), 'failed', {
+    errorMessage: 'Sync workflow failed.',
+  });
+
   return res.status(200).json({ message: 'Sync marked as failed' });
 });
 
@@ -463,18 +578,21 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
       success: true,
       status: 'disabled',
       targetDate,
-      message: 'Auto sync is disabled'
+      message: 'Auto sync is disabled',
     });
   }
 
-  const existingRun = await getRunningSync();
-  if (existingRun) {
+  const runningJob = await getRunningHeavyJob();
+  if (runningJob) {
+    const activeSync = runningJob.referenceId
+      ? await getSyncRunById(runningJob.referenceId.toString())
+      : await getRunningSync();
     return res.status(200).json({
       success: true,
       status: 'already_running',
-      activeSyncId: existingRun._id!.toString(),
-      activeTargetDate: existingRun.targetDate,
-      message: 'Another sync is already running'
+      activeSyncId: activeSync?._id?.toString(),
+      activeTargetDate: activeSync?.targetDate || runningJob.targetDate,
+      message: 'Another sync or heavy automation is already running',
     });
   }
 
@@ -486,7 +604,7 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
       status: 'no_work',
       targetDate,
       message: 'No active Instagram accounts',
-      accounts: {}
+      accounts: {},
     });
   }
 
@@ -496,7 +614,7 @@ export const internalPrepareSync = catchAsync(async (req: Request, res: Response
       status: 'no_work',
       targetDate,
       message: 'Daily post targets already fulfilled',
-      accounts: accountStats
+      accounts: accountStats,
     });
   }
 
